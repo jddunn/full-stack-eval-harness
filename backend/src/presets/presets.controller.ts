@@ -1,7 +1,8 @@
 import { Controller, Get, Post, Param, Body } from '@nestjs/common';
-import { GRADER_PRESETS, DATASET_PRESETS } from './presets';
+import { GRADER_PRESETS, DATASET_PRESETS, CANDIDATE_PRESETS } from './presets';
 import { DatasetsService } from '../datasets/datasets.service';
 import { GradersService } from '../graders/graders.service';
+import { CandidatesService } from '../candidates/candidates.service';
 import {
   SyntheticService,
   SyntheticGenerationRequest,
@@ -12,6 +13,7 @@ export class PresetsController {
   constructor(
     private datasetsService: DatasetsService,
     private gradersService: GradersService,
+    private candidatesService: CandidatesService,
     private syntheticService: SyntheticService,
   ) {}
 
@@ -120,6 +122,37 @@ export class PresetsController {
     }
 
     return results;
+  }
+
+  /**
+   * Get all candidate presets
+   */
+  @Get('candidates')
+  getCandidatePresets() {
+    return CANDIDATE_PRESETS;
+  }
+
+  /**
+   * Load a candidate preset - creates a new candidate from the preset
+   */
+  @Post('candidates/:id/load')
+  async loadCandidatePreset(@Param('id') id: string) {
+    const preset = CANDIDATE_PRESETS.find((p) => p.id === id);
+    if (!preset) {
+      throw new Error(`Candidate preset not found: ${id}`);
+    }
+
+    return this.candidatesService.create({
+      name: preset.name,
+      description: preset.description,
+      runnerType: preset.runnerType,
+      systemPrompt: preset.systemPrompt,
+      userPromptTemplate: preset.userPromptTemplate,
+      modelConfig: preset.modelConfig,
+      endpointUrl: preset.endpointUrl,
+      endpointMethod: preset.endpointMethod,
+      endpointBodyTemplate: preset.endpointBodyTemplate,
+    });
   }
 
   /**

@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Query,
   Sse,
   Res,
   Header,
@@ -47,6 +48,18 @@ export class ExperimentsController {
         data: progress,
       })),
     );
+  }
+
+  /**
+   * Compare two candidates within an experiment.
+   */
+  @Get(':id/compare')
+  compare(
+    @Param('id') id: string,
+    @Query('baseline') baselineId: string,
+    @Query('challenger') challengerId: string
+  ) {
+    return this.experimentsService.compareCandidate(id, baselineId, challengerId);
   }
 
   /**
