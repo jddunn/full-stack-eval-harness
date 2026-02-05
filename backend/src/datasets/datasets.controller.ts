@@ -6,7 +6,10 @@ import {
   Delete,
   Body,
   Param,
+  Res,
+  Header,
 } from '@nestjs/common';
+import { Response } from 'express';
 import {
   DatasetsService,
   CreateDatasetDto,
@@ -43,7 +46,7 @@ export class DatasetsController {
     return this.datasetsService.remove(id);
   }
 
-  // Test case endpoints nested under dataset
+  // Test case endpoints
   @Post(':id/cases')
   addTestCase(@Param('id') datasetId: string, @Body() dto: CreateTestCaseDto) {
     return this.datasetsService.addTestCase(datasetId, dto);
@@ -64,5 +67,80 @@ export class DatasetsController {
     @Param('caseId') caseId: string,
   ) {
     return this.datasetsService.removeTestCase(datasetId, caseId);
+  }
+
+  /**
+   * Export dataset as JSON.
+   */
+  @Get(':id/export/json')
+  @Header('Content-Type', 'application/json')
+  async exportJson(@Param('id') id: string, @Res() res: Response) {
+    const dataset = await this.datasetsService.findOne(id);
+
+    const exportData = {
+      name: dataset.name,
+      description: dataset.description,
+      testCases: dataset.testCases.map((tc) => ({
+        input: tc.input,
+        expectedOutput: tc.expectedOutput,
+        context: tc.context,
+        metadata: tc.metadata,
+      })),
+    };
+
+    const filename = `dataset-${dataset.name.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().slice(0, 10)}.json`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(JSON.stringify(exportData, null, 2));
+  }
+
+  /**
+   * Export dataset as CSV.
+   */
+  @Get(':id/export/csv')
+  @Header('Content-Type', 'text/csv')
+  async exportCsv(@Param('id') id: string, @Res() res: Response) {
+    const dataset = await this.datasetsService.findOne(id);
+
+    const headers = ['input', 'expected_output', 'context', 'metadata'];
+    const rows = dataset.testCases.map((tc) => [
+      `"${(tc.input || '').replace(/"/g, '""')}"`,
+      `"${(tc.expectedOutput || '').replace(/"/g, '""')}"`,
+      `"${(tc.context || '').replace(/"/g, '""')}"`,
+      `"${tc.metadata ? JSON.stringify(tc.metadata).replace(/"/g, '""') : ''}"`,
+    ]);
+
+    const csv = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+
+    const filename = `dataset-${dataset.name.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
+  }
+
+  /**
+   * Import test cases from JSON.
+   */
+  @Post(':id/import')
+  async importTestCases(
+    @Param('id') datasetId: string,
+    @Body() body: {
+      testCases: Array<{
+        input: string;
+        expectedOutput?: string;
+        context?: string;
+        metadata?: Record<string, unknown>;
+      }>;
+    },
+  ) {
+    const results = [];
+
+    for (const tc of body.testCases) {
+      const testCase = await this.datasetsService.addTestCase(datasetId, tc);
+      results.push(testCase);
+    }
+
+    return {
+      imported: results.length,
+      testCases: results,
+    };
   }
 }

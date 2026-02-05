@@ -44,6 +44,20 @@ export const datasetsApi = {
       body: JSON.stringify(data),
     }),
 
+  // Export URLs (for download links)
+  exportJsonUrl: (id: string) => `${API_BASE}/datasets/${id}/export/json`,
+  exportCsvUrl: (id: string) => `${API_BASE}/datasets/${id}/export/csv`,
+
+  // Import test cases
+  importTestCases: (
+    datasetId: string,
+    testCases: Array<{ input: string; expectedOutput?: string; context?: string }>,
+  ) =>
+    fetchApi<{ imported: number; testCases: TestCase[] }>(`/datasets/${datasetId}/import`, {
+      method: 'POST',
+      body: JSON.stringify({ testCases }),
+    }),
+
   update: (id: string, data: { name?: string; description?: string }) =>
     fetchApi<Dataset>(`/datasets/${id}`, {
       method: 'PUT',
@@ -121,6 +135,10 @@ export const experimentsApi = {
   streamProgress: (id: string) => {
     return new EventSource(`${API_BASE}/experiments/${id}/stream`);
   },
+
+  // Export URLs
+  exportJsonUrl: (id: string) => `${API_BASE}/experiments/${id}/export/json`,
+  exportCsvUrl: (id: string) => `${API_BASE}/experiments/${id}/export/csv`,
 };
 
 // Preset types
