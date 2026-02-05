@@ -6,6 +6,7 @@ import { GradersModule } from './graders/graders.module';
 import { ExperimentsModule } from './experiments/experiments.module';
 import { LlmModule } from './llm/llm.module';
 import { PresetsModule } from './presets/presets.module';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { PresetsModule } from './presets/presets.module';
     GradersModule,
     ExperimentsModule,
     PresetsModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

@@ -1,10 +1,7 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
-import { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { nanoid } from 'nanoid';
 import { Subject, Observable } from 'rxjs';
-import { DATABASE_CONNECTION } from '../database/db.module';
-import * as schema from '../database/schema';
+import { DB_ADAPTER, IDbAdapter } from '../database/db.module';
 import { DatasetsService } from '../datasets/datasets.service';
 import { GradersService } from '../graders/graders.service';
 import { LlmService } from '../llm/llm.service';
@@ -33,12 +30,11 @@ export interface ExperimentProgress {
 
 @Injectable()
 export class ExperimentsService {
-  // Track active experiment streams for SSE
   private experimentStreams = new Map<string, Subject<ExperimentProgress>>();
 
   constructor(
-    @Inject(DATABASE_CONNECTION)
-    private db: BetterSQLite3Database<typeof schema>,
+    @Inject(DB_ADAPTER)
+    private db: IDbAdapter,
     private datasetsService: DatasetsService,
     private gradersService: GradersService,
     private llmService: LlmService,
@@ -48,7 +44,7 @@ export class ExperimentsService {
    * Get all experiments.
    */
   async findAll() {
-    const experiments = await this.db.select().from(schema.experiments);
+    const experiments = await this.db.findAllExperiments();
     return experiments.map((e) => ({
       ...e,
       graderIds: JSON.parse(e.graderIds),
@@ -59,19 +55,13 @@ export class ExperimentsService {
    * Get an experiment by ID, including all results.
    */
   async findOne(id: string) {
-    const [experiment] = await this.db
-      .select()
-      .from(schema.experiments)
-      .where(eq(schema.experiments.id, id));
+    const experiment = await this.db.findExperimentById(id);
 
     if (!experiment) {
       throw new NotFoundException(`Experiment ${id} not found`);
     }
 
-    const results = await this.db
-      .select()
-      .from(schema.experimentResults)
-      .where(eq(schema.experimentResults.experimentId, id));
+    const results = await this.db.findResultsByExperimentId(id);
 
     return {
       ...experiment,
@@ -84,22 +74,18 @@ export class ExperimentsService {
    * Create and run a new experiment.
    */
   async create(dto: CreateExperimentDto) {
-    // Verify dataset and graders exist
     const dataset = await this.datasetsService.findOne(dto.datasetId);
     const graders = await this.gradersService.findMany(dto.graderIds);
 
-    const experiment: schema.NewExperiment = {
+    const experiment = await this.db.insertExperiment({
       id: nanoid(),
       name: dto.name || `Experiment ${new Date().toISOString().slice(0, 16)}`,
       datasetId: dto.datasetId,
       graderIds: JSON.stringify(dto.graderIds),
       status: 'pending',
       createdAt: new Date(),
-    };
+    });
 
-    await this.db.insert(schema.experiments).values(experiment);
-
-    // Start running the experiment asynchronously
     this.runExperiment(experiment.id, dataset, graders);
 
     return {
@@ -134,22 +120,16 @@ export class ExperimentsService {
     this.experimentStreams.set(experimentId, subject);
 
     try {
-      // Update status to running
-      await this.db
-        .update(schema.experiments)
-        .set({ status: 'running' })
-        .where(eq(schema.experiments.id, experimentId));
+      await this.db.updateExperiment(experimentId, { status: 'running' });
 
       const testCases = dataset.testCases;
       const totalEvals = testCases.length * graders.length;
       let current = 0;
 
-      // Iterate through each test case and grader
       for (const testCase of testCases) {
         for (const graderDef of graders) {
           current++;
 
-          // Emit progress update
           subject.next({
             type: 'progress',
             experimentId,
@@ -160,7 +140,6 @@ export class ExperimentsService {
           });
 
           try {
-            // Create grader instance
             const grader = createGrader(
               graderDef.type as GraderType,
               {
@@ -172,19 +151,16 @@ export class ExperimentsService {
               this.llmService,
             );
 
-            // Build eval input
             const evalInput: EvalInput = {
               input: testCase.input,
-              output: testCase.expectedOutput || '', // For now, use expected as output (in real use, this would be model output)
+              output: testCase.expectedOutput || '',
               expected: testCase.expectedOutput || undefined,
               context: testCase.context || undefined,
             };
 
-            // Run evaluation
             const result = await grader.evaluate(evalInput);
 
-            // Store result
-            const experimentResult: schema.NewExperimentResult = {
+            await this.db.insertResult({
               id: nanoid(),
               experimentId,
               testCaseId: testCase.id,
@@ -194,11 +170,8 @@ export class ExperimentsService {
               reason: result.reason,
               output: evalInput.output,
               createdAt: new Date(),
-            };
+            });
 
-            await this.db.insert(schema.experimentResults).values(experimentResult);
-
-            // Emit result
             subject.next({
               type: 'result',
               experimentId,
@@ -213,8 +186,7 @@ export class ExperimentsService {
               },
             });
           } catch (error) {
-            // Store failed result
-            const experimentResult: schema.NewExperimentResult = {
+            await this.db.insertResult({
               id: nanoid(),
               experimentId,
               testCaseId: testCase.id,
@@ -224,9 +196,7 @@ export class ExperimentsService {
               reason: `Evaluation error: ${error instanceof Error ? error.message : 'Unknown error'}`,
               output: testCase.expectedOutput || '',
               createdAt: new Date(),
-            };
-
-            await this.db.insert(schema.experimentResults).values(experimentResult);
+            });
 
             subject.next({
               type: 'error',
@@ -239,20 +209,15 @@ export class ExperimentsService {
         }
       }
 
-      // Mark experiment as completed
-      await this.db
-        .update(schema.experiments)
-        .set({ status: 'completed', completedAt: new Date() })
-        .where(eq(schema.experiments.id, experimentId));
+      await this.db.updateExperiment(experimentId, {
+        status: 'completed',
+        completedAt: new Date(),
+      });
 
       subject.next({ type: 'complete', experimentId });
       subject.complete();
     } catch (error) {
-      // Mark experiment as failed
-      await this.db
-        .update(schema.experiments)
-        .set({ status: 'failed' })
-        .where(eq(schema.experiments.id, experimentId));
+      await this.db.updateExperiment(experimentId, { status: 'failed' });
 
       subject.next({
         type: 'error',
@@ -261,7 +226,6 @@ export class ExperimentsService {
       });
       subject.complete();
     } finally {
-      // Clean up stream after a delay
       setTimeout(() => {
         this.experimentStreams.delete(experimentId);
       }, 60000);
@@ -273,43 +237,20 @@ export class ExperimentsService {
    */
   async getStats(experimentId: string) {
     const experiment = await this.findOne(experimentId);
-    const results = experiment.results;
-
-    if (results.length === 0) {
-      return {
-        experimentId,
-        totalTests: 0,
-        totalGraders: experiment.graderIds.length,
-        passRate: 0,
-        graderStats: [],
-      };
-    }
-
-    // Calculate per-grader stats
-    const graderIds = experiment.graderIds as string[];
-    const graderStats = graderIds.map((graderId) => {
-      const graderResults = results.filter((r) => r.graderId === graderId);
-      const passed = graderResults.filter((r) => r.pass).length;
-      const total = graderResults.length;
-      const avgScore = graderResults.reduce((sum, r) => sum + (r.score || 0), 0) / total;
-
-      return {
-        graderId,
-        passed,
-        total,
-        passRate: total > 0 ? passed / total : 0,
-        avgScore,
-      };
-    });
-
-    const totalPassed = results.filter((r) => r.pass).length;
+    const stats = await this.db.getExperimentStats(experimentId);
 
     return {
       experimentId,
-      totalTests: results.length,
-      totalGraders: graderIds.length,
-      passRate: totalPassed / results.length,
-      graderStats,
+      totalTests: stats.total,
+      totalGraders: (experiment.graderIds as string[]).length,
+      passRate: stats.total > 0 ? stats.passed / stats.total : 0,
+      passed: stats.passed,
+      failed: stats.failed,
+      graderStats: Object.entries(stats.byGrader).map(([graderId, data]) => ({
+        graderId,
+        ...data,
+        passRate: data.total > 0 ? data.passed / data.total : 0,
+      })),
     };
   }
 }

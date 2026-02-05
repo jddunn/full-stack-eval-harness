@@ -1,9 +1,6 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
-import { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { nanoid } from 'nanoid';
-import { DATABASE_CONNECTION } from '../database/db.module';
-import * as schema from '../database/schema';
+import { DB_ADAPTER, IDbAdapter } from '../database/db.module';
 
 export type GraderType = 'exact-match' | 'llm-judge' | 'semantic-similarity' | 'faithfulness';
 
@@ -11,7 +8,7 @@ export interface CreateGraderDto {
   name: string;
   description?: string;
   type: GraderType;
-  rubric?: string; // For LLM-based graders
+  rubric?: string;
   config?: Record<string, unknown>;
 }
 
@@ -25,15 +22,15 @@ export interface UpdateGraderDto {
 @Injectable()
 export class GradersService {
   constructor(
-    @Inject(DATABASE_CONNECTION)
-    private db: BetterSQLite3Database<typeof schema>,
+    @Inject(DB_ADAPTER)
+    private db: IDbAdapter,
   ) {}
 
   /**
    * Get all graders.
    */
   async findAll() {
-    const graders = await this.db.select().from(schema.graders);
+    const graders = await this.db.findAllGraders();
     return graders.map((g) => ({
       ...g,
       config: g.config ? JSON.parse(g.config) : null,
@@ -44,10 +41,7 @@ export class GradersService {
    * Get a grader by ID.
    */
   async findOne(id: string) {
-    const [grader] = await this.db
-      .select()
-      .from(schema.graders)
-      .where(eq(schema.graders.id, id));
+    const grader = await this.db.findGraderById(id);
 
     if (!grader) {
       throw new NotFoundException(`Grader ${id} not found`);
@@ -63,8 +57,11 @@ export class GradersService {
    * Get multiple graders by IDs.
    */
   async findMany(ids: string[]) {
-    const graders = await Promise.all(ids.map((id) => this.findOne(id)));
-    return graders;
+    const graders = await this.db.findGradersByIds(ids);
+    return graders.map((g) => ({
+      ...g,
+      config: g.config ? JSON.parse(g.config) : null,
+    }));
   }
 
   /**
@@ -72,7 +69,7 @@ export class GradersService {
    */
   async create(dto: CreateGraderDto) {
     const now = new Date();
-    const grader: schema.NewGrader = {
+    const grader = await this.db.insertGrader({
       id: nanoid(),
       name: dto.name,
       description: dto.description,
@@ -81,9 +78,8 @@ export class GradersService {
       config: dto.config ? JSON.stringify(dto.config) : null,
       createdAt: now,
       updatedAt: now,
-    };
+    });
 
-    await this.db.insert(schema.graders).values(grader);
     return {
       ...grader,
       config: dto.config || null,
@@ -94,22 +90,19 @@ export class GradersService {
    * Update a grader.
    */
   async update(id: string, dto: UpdateGraderDto) {
-    const [existing] = await this.db
-      .select()
-      .from(schema.graders)
-      .where(eq(schema.graders.id, id));
+    const existing = await this.db.findGraderById(id);
 
     if (!existing) {
       throw new NotFoundException(`Grader ${id} not found`);
     }
 
-    const updates: Partial<schema.Grader> = { updatedAt: new Date() };
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
     if (dto.name !== undefined) updates.name = dto.name;
     if (dto.description !== undefined) updates.description = dto.description;
     if (dto.rubric !== undefined) updates.rubric = dto.rubric;
     if (dto.config !== undefined) updates.config = JSON.stringify(dto.config);
 
-    await this.db.update(schema.graders).set(updates).where(eq(schema.graders.id, id));
+    await this.db.updateGrader(id, updates);
 
     return this.findOne(id);
   }
@@ -118,16 +111,13 @@ export class GradersService {
    * Delete a grader.
    */
   async remove(id: string) {
-    const [existing] = await this.db
-      .select()
-      .from(schema.graders)
-      .where(eq(schema.graders.id, id));
+    const existing = await this.db.findGraderById(id);
 
     if (!existing) {
       throw new NotFoundException(`Grader ${id} not found`);
     }
 
-    await this.db.delete(schema.graders).where(eq(schema.graders.id, id));
+    await this.db.deleteGrader(id);
     return { deleted: true };
   }
 }

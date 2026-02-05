@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Sun, Moon, Database, Gauge, FlaskConical, Info } from 'lucide-react';
+import { Sun, Moon, Database, Gauge, FlaskConical, Info, Settings } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 
 const tabs = [
   { name: 'Datasets', href: '/datasets', icon: Database },
   { name: 'Graders', href: '/graders', icon: Gauge },
   { name: 'Experiments', href: '/experiments', icon: FlaskConical },
+  { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'About', href: '/about', icon: Info },
 ];
 

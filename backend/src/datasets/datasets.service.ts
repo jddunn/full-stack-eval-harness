@@ -1,9 +1,6 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
-import { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { nanoid } from 'nanoid';
-import { DATABASE_CONNECTION } from '../database/db.module';
-import * as schema from '../database/schema';
+import { DB_ADAPTER, IDbAdapter } from '../database/db.module';
 
 export interface CreateDatasetDto {
   name: string;
@@ -27,26 +24,22 @@ export interface UpdateTestCaseDto {
 @Injectable()
 export class DatasetsService {
   constructor(
-    @Inject(DATABASE_CONNECTION)
-    private db: BetterSQLite3Database<typeof schema>,
+    @Inject(DB_ADAPTER)
+    private db: IDbAdapter,
   ) {}
 
   /**
    * Get all datasets with their test case counts.
    */
   async findAll() {
-    const datasets = await this.db.select().from(schema.datasets);
+    const datasets = await this.db.findAllDatasets();
 
-    // Get test case counts for each dataset
     const datasetsWithCounts = await Promise.all(
       datasets.map(async (dataset) => {
-        const cases = await this.db
-          .select()
-          .from(schema.testCases)
-          .where(eq(schema.testCases.datasetId, dataset.id));
+        const count = await this.db.countTestCasesByDatasetId(dataset.id);
         return {
           ...dataset,
-          testCaseCount: cases.length,
+          testCaseCount: count,
         };
       }),
     );
@@ -58,19 +51,13 @@ export class DatasetsService {
    * Get a dataset by ID, including all its test cases.
    */
   async findOne(id: string) {
-    const [dataset] = await this.db
-      .select()
-      .from(schema.datasets)
-      .where(eq(schema.datasets.id, id));
+    const dataset = await this.db.findDatasetById(id);
 
     if (!dataset) {
       throw new NotFoundException(`Dataset ${id} not found`);
     }
 
-    const testCases = await this.db
-      .select()
-      .from(schema.testCases)
-      .where(eq(schema.testCases.datasetId, id));
+    const testCases = await this.db.findTestCasesByDatasetId(id);
 
     return {
       ...dataset,
@@ -86,15 +73,14 @@ export class DatasetsService {
    */
   async create(dto: CreateDatasetDto) {
     const now = new Date();
-    const dataset: schema.NewDataset = {
+    const dataset = await this.db.insertDataset({
       id: nanoid(),
       name: dto.name,
       description: dto.description,
       createdAt: now,
       updatedAt: now,
-    };
+    });
 
-    await this.db.insert(schema.datasets).values(dataset);
     return dataset;
   }
 
@@ -102,22 +88,16 @@ export class DatasetsService {
    * Update a dataset.
    */
   async update(id: string, dto: Partial<CreateDatasetDto>) {
-    const [existing] = await this.db
-      .select()
-      .from(schema.datasets)
-      .where(eq(schema.datasets.id, id));
+    const existing = await this.db.findDatasetById(id);
 
     if (!existing) {
       throw new NotFoundException(`Dataset ${id} not found`);
     }
 
-    await this.db
-      .update(schema.datasets)
-      .set({
-        ...dto,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.datasets.id, id));
+    await this.db.updateDataset(id, {
+      ...dto,
+      updatedAt: new Date(),
+    });
 
     return this.findOne(id);
   }
@@ -126,16 +106,13 @@ export class DatasetsService {
    * Delete a dataset and all its test cases.
    */
   async remove(id: string) {
-    const [existing] = await this.db
-      .select()
-      .from(schema.datasets)
-      .where(eq(schema.datasets.id, id));
+    const existing = await this.db.findDatasetById(id);
 
     if (!existing) {
       throw new NotFoundException(`Dataset ${id} not found`);
     }
 
-    await this.db.delete(schema.datasets).where(eq(schema.datasets.id, id));
+    await this.db.deleteDataset(id);
     return { deleted: true };
   }
 
@@ -143,17 +120,13 @@ export class DatasetsService {
    * Add a test case to a dataset.
    */
   async addTestCase(datasetId: string, dto: CreateTestCaseDto) {
-    // Verify dataset exists
-    const [dataset] = await this.db
-      .select()
-      .from(schema.datasets)
-      .where(eq(schema.datasets.id, datasetId));
+    const dataset = await this.db.findDatasetById(datasetId);
 
     if (!dataset) {
       throw new NotFoundException(`Dataset ${datasetId} not found`);
     }
 
-    const testCase: schema.NewTestCase = {
+    const testCase = await this.db.insertTestCase({
       id: nanoid(),
       datasetId,
       input: dto.input,
@@ -161,9 +134,8 @@ export class DatasetsService {
       context: dto.context,
       metadata: dto.metadata ? JSON.stringify(dto.metadata) : null,
       createdAt: new Date(),
-    };
+    });
 
-    await this.db.insert(schema.testCases).values(testCase);
     return {
       ...testCase,
       metadata: dto.metadata || null,
@@ -174,31 +146,23 @@ export class DatasetsService {
    * Update a test case.
    */
   async updateTestCase(datasetId: string, caseId: string, dto: UpdateTestCaseDto) {
-    const [existing] = await this.db
-      .select()
-      .from(schema.testCases)
-      .where(eq(schema.testCases.id, caseId));
+    const existing = await this.db.findTestCaseById(caseId);
 
     if (!existing || existing.datasetId !== datasetId) {
       throw new NotFoundException(`Test case ${caseId} not found in dataset ${datasetId}`);
     }
 
-    const updates: Partial<schema.TestCase> = {};
+    const updates: Record<string, unknown> = {};
     if (dto.input !== undefined) updates.input = dto.input;
     if (dto.expectedOutput !== undefined) updates.expectedOutput = dto.expectedOutput;
     if (dto.context !== undefined) updates.context = dto.context;
     if (dto.metadata !== undefined) updates.metadata = JSON.stringify(dto.metadata);
 
-    await this.db.update(schema.testCases).set(updates).where(eq(schema.testCases.id, caseId));
-
-    const [updated] = await this.db
-      .select()
-      .from(schema.testCases)
-      .where(eq(schema.testCases.id, caseId));
+    const updated = await this.db.updateTestCase(caseId, updates);
 
     return {
       ...updated,
-      metadata: updated.metadata ? JSON.parse(updated.metadata) : null,
+      metadata: updated?.metadata ? JSON.parse(updated.metadata) : null,
     };
   }
 
@@ -206,16 +170,13 @@ export class DatasetsService {
    * Delete a test case.
    */
   async removeTestCase(datasetId: string, caseId: string) {
-    const [existing] = await this.db
-      .select()
-      .from(schema.testCases)
-      .where(eq(schema.testCases.id, caseId));
+    const existing = await this.db.findTestCaseById(caseId);
 
     if (!existing || existing.datasetId !== datasetId) {
       throw new NotFoundException(`Test case ${caseId} not found in dataset ${datasetId}`);
     }
 
-    await this.db.delete(schema.testCases).where(eq(schema.testCases.id, caseId));
+    await this.db.deleteTestCase(caseId);
     return { deleted: true };
   }
 }

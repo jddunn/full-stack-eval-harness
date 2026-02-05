@@ -187,3 +187,42 @@ export const presetsApi = {
       body: JSON.stringify(data),
     }),
 };
+
+// Settings types
+export interface LlmSettings {
+  provider: 'openai' | 'anthropic' | 'ollama';
+  model: string;
+  apiKey?: string;
+  baseUrl?: string;
+  temperature?: number;
+  maxTokens?: number;
+}
+
+export interface AppSettings {
+  llm: LlmSettings;
+}
+
+export interface ConnectionTestResult {
+  success: boolean;
+  message: string;
+  latencyMs?: number;
+}
+
+// Settings API
+export const settingsApi = {
+  getAll: () => fetchApi<AppSettings>('/settings'),
+
+  getLlmSettings: () => fetchApi<LlmSettings>('/settings/llm'),
+
+  updateLlmSettings: (data: Partial<LlmSettings>) =>
+    fetchApi<LlmSettings>('/settings/llm', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  testConnection: () =>
+    fetchApi<ConnectionTestResult>('/settings/llm/test', { method: 'POST' }),
+
+  resetToDefaults: () =>
+    fetchApi<AppSettings>('/settings/reset', { method: 'POST' }),
+};
