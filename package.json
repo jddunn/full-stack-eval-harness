@@ -1,0 +1,20 @@
+{
+  "name": "fullstack-evals-harness-example",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lightweight eval harness for running AI graders against test cases",
+  "author": "Johnny Dunn",
+  "scripts": {
+    "backend:dev": "pnpm --filter ./backend run start:dev",
+    "backend:build": "pnpm --filter ./backend run build",
+    "frontend:dev": "pnpm --filter ./frontend run dev",
+    "frontend:build": "pnpm --filter ./frontend run build",
+    "dev": "concurrently \"pnpm backend:dev\" \"pnpm frontend:dev\"",
+    "build": "pnpm backend:build && pnpm frontend:build",
+    "test": "pnpm --filter ./backend run test",
+    "lint": "pnpm --filter ./backend run lint && pnpm --filter ./frontend run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
