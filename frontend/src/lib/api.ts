@@ -3,8 +3,11 @@ import type {
   TestCase,
   Grader,
   GraderType,
+  Candidate,
+  CandidateRunnerType,
   Experiment,
   ExperimentStats,
+  CandidateComparison,
 } from './types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3021/api';
@@ -117,19 +120,75 @@ export const gradersApi = {
     fetchApi<{ deleted: boolean }>(`/graders/${id}`, { method: 'DELETE' }),
 };
 
+// Candidate API
+export const candidatesApi = {
+  list: () => fetchApi<Candidate[]>('/candidates'),
+
+  get: (id: string) => fetchApi<Candidate>(`/candidates/${id}`),
+
+  create: (data: {
+    name: string;
+    description?: string;
+    runnerType: CandidateRunnerType;
+    systemPrompt?: string;
+    userPromptTemplate?: string;
+    modelConfig?: Record<string, unknown>;
+    endpointUrl?: string;
+    endpointMethod?: string;
+    endpointHeaders?: Record<string, string>;
+    endpointBodyTemplate?: string;
+    parentId?: string;
+    variantLabel?: string;
+  }) =>
+    fetchApi<Candidate>('/candidates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  update: (
+    id: string,
+    data: Partial<Omit<Candidate, 'id' | 'createdAt' | 'updatedAt'>>,
+  ) =>
+    fetchApi<Candidate>(`/candidates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  delete: (id: string) =>
+    fetchApi<{ deleted: boolean }>(`/candidates/${id}`, { method: 'DELETE' }),
+
+  getVariants: (id: string) => fetchApi<Candidate[]>(`/candidates/${id}/variants`),
+
+  test: (id: string, data: { input: string; context?: string; metadata?: Record<string, unknown> }) =>
+    fetchApi<{ output: string; latencyMs: number; error?: string }>(`/candidates/${id}/test`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+};
+
 // Experiment API
 export const experimentsApi = {
   list: () => fetchApi<Experiment[]>('/experiments'),
 
   get: (id: string) => fetchApi<Experiment>(`/experiments/${id}`),
 
-  create: (data: { name?: string; datasetId: string; graderIds: string[] }) =>
+  create: (data: {
+    name?: string;
+    datasetId: string;
+    graderIds: string[];
+    candidateIds?: string[];
+  }) =>
     fetchApi<Experiment>('/experiments', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
   getStats: (id: string) => fetchApi<ExperimentStats>(`/experiments/${id}/stats`),
+
+  compare: (id: string, baselineId: string, challengerId: string) =>
+    fetchApi<CandidateComparison>(
+      `/experiments/${id}/compare?baseline=${baselineId}&challenger=${challengerId}`,
+    ),
 
   // SSE stream for real-time progress
   streamProgress: (id: string) => {
@@ -164,17 +223,33 @@ export interface DatasetPreset {
   tooltip: string;
 }
 
+export interface CandidatePreset {
+  id: string;
+  name: string;
+  description: string;
+  runnerType: CandidateRunnerType;
+  systemPrompt?: string;
+  userPromptTemplate?: string;
+  modelConfig?: Record<string, unknown>;
+  tooltip: string;
+}
+
 // Presets API
 export const presetsApi = {
   getGraderPresets: () => fetchApi<GraderPreset[]>('/presets/graders'),
 
   getDatasetPresets: () => fetchApi<DatasetPreset[]>('/presets/datasets'),
 
+  getCandidatePresets: () => fetchApi<CandidatePreset[]>('/presets/candidates'),
+
   loadGraderPreset: (id: string) =>
     fetchApi<Grader>(`/presets/graders/${id}/load`, { method: 'POST' }),
 
   loadDatasetPreset: (id: string) =>
     fetchApi<Dataset>(`/presets/datasets/${id}/load`, { method: 'POST' }),
+
+  loadCandidatePreset: (id: string) =>
+    fetchApi<Candidate>(`/presets/candidates/${id}/load`, { method: 'POST' }),
 
   seedAll: () =>
     fetchApi<{ graders: Grader[]; datasets: Dataset[] }>('/presets/seed', {

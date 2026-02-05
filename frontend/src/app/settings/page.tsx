@@ -349,21 +349,6 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
-
-      {/* API Docs Link */}
-      <div className="card-inset p-4 text-center">
-        <p className="text-sm text-muted-foreground">
-          API documentation available at{' '}
-          <a
-            href="http://localhost:3021/api/docs"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="link"
-          >
-            localhost:3021/api/docs
-          </a>
-        </p>
-      </div>
     </div>
   );
 }

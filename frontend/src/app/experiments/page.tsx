@@ -1,19 +1,21 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Play, Check, X, Loader2 } from 'lucide-react';
-import { datasetsApi, gradersApi, experimentsApi } from '@/lib/api';
-import type { Dataset, Grader, Experiment, ExperimentProgress } from '@/lib/types';
+import { Play, Check, X, Loader2, Bot } from 'lucide-react';
+import { datasetsApi, gradersApi, candidatesApi, experimentsApi } from '@/lib/api';
+import type { Dataset, Grader, Candidate, Experiment, ExperimentProgress } from '@/lib/types';
 
 export default function ExperimentsPage() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [graders, setGraders] = useState<Grader[]>([]);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Form state
   const [selectedDataset, setSelectedDataset] = useState<string>('');
   const [selectedGraders, setSelectedGraders] = useState<string[]>([]);
+  const [selectedCandidates, setSelectedCandidates] = useState<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
 
@@ -27,13 +29,15 @@ export default function ExperimentsPage() {
 
   async function loadData() {
     try {
-      const [datasetsData, gradersData, experimentsData] = await Promise.all([
+      const [datasetsData, gradersData, candidatesData, experimentsData] = await Promise.all([
         datasetsApi.list(),
         gradersApi.list(),
+        candidatesApi.list(),
         experimentsApi.list(),
       ]);
       setDatasets(datasetsData);
       setGraders(gradersData);
+      setCandidates(candidatesData);
       setExperiments(experimentsData);
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -50,6 +54,14 @@ export default function ExperimentsPage() {
     );
   }, []);
 
+  const toggleCandidate = useCallback((candidateId: string) => {
+    setSelectedCandidates((prev) =>
+      prev.includes(candidateId)
+        ? prev.filter((id) => id !== candidateId)
+        : [...prev, candidateId]
+    );
+  }, []);
+
   async function runExperiment() {
     if (!selectedDataset || selectedGraders.length === 0) return;
 
@@ -60,6 +72,7 @@ export default function ExperimentsPage() {
       const experiment = await experimentsApi.create({
         datasetId: selectedDataset,
         graderIds: selectedGraders,
+        candidateIds: selectedCandidates.length > 0 ? selectedCandidates : undefined,
       });
 
       // Connect to SSE stream for progress
@@ -80,7 +93,7 @@ export default function ExperimentsPage() {
           viewExperiment(experiment.id);
         }
 
-        if (data.type === 'error') {
+        if (data.type === 'error' && !data.testCaseId) {
           console.error('Experiment error:', data.error);
           eventSource.close();
           setIsRunning(false);
@@ -122,12 +135,16 @@ export default function ExperimentsPage() {
     );
   }
 
+  // Determine if active experiment has candidates
+  const hasCandidates =
+    activeExperiment?.candidateIds && activeExperiment.candidateIds.length > 0;
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Experiments</h1>
         <p className="text-muted-foreground mt-1">
-          Run graders against datasets and view results
+          Run candidates and graders against datasets
         </p>
       </div>
 
@@ -190,6 +207,42 @@ export default function ExperimentsPage() {
           </div>
         </div>
 
+        {/* Candidate selection */}
+        {candidates.length > 0 && (
+          <div>
+            <label className="text-sm font-medium block mb-2">
+              Candidates
+              <span className="text-muted-foreground font-normal ml-2">(optional)</span>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {candidates.map((candidate) => (
+                <button
+                  key={candidate.id}
+                  onClick={() => toggleCandidate(candidate.id)}
+                  disabled={isRunning}
+                  className={`
+                    px-3 py-1.5 text-sm rounded-md border transition-colors flex items-center gap-1.5
+                    ${
+                      selectedCandidates.includes(candidate.id)
+                        ? 'bg-foreground text-background border-foreground'
+                        : 'border-border hover:border-foreground/50'
+                    }
+                    ${isRunning ? 'opacity-50 cursor-not-allowed' : ''}
+                  `}
+                >
+                  <Bot className="h-3 w-3" />
+                  {candidate.name}
+                </button>
+              ))}
+            </div>
+            {selectedCandidates.length === 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Without candidates, graders evaluate expectedOutput directly
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center gap-4">
           <button
             onClick={runExperiment}
@@ -232,6 +285,7 @@ export default function ExperimentsPage() {
             </h2>
             <p className="text-sm text-muted-foreground">
               Dataset: {activeDataset.name} · Status: {activeExperiment.status}
+              {hasCandidates && ` · ${activeExperiment.candidateIds!.length} candidate(s)`}
             </p>
           </div>
 
@@ -241,10 +295,29 @@ export default function ExperimentsPage() {
                 <thead>
                   <tr>
                     <th>Input</th>
-                    {activeExperiment.graderIds.map((graderId) => {
-                      const grader = graders.find((g) => g.id === graderId);
-                      return <th key={graderId}>{grader?.name || graderId}</th>;
-                    })}
+                    {hasCandidates ? (
+                      // Multi-candidate: columns grouped by candidate, sub-columns by grader
+                      activeExperiment.candidateIds!.map((candidateId) => {
+                        const candidate = candidates.find((c) => c.id === candidateId);
+                        return activeExperiment.graderIds.map((graderId) => {
+                          const grader = graders.find((g) => g.id === graderId);
+                          return (
+                            <th key={`${candidateId}-${graderId}`}>
+                              <div className="text-xs">
+                                <div className="font-medium">{candidate?.name || candidateId.slice(0, 8)}</div>
+                                <div className="text-muted-foreground font-normal">{grader?.name || graderId.slice(0, 8)}</div>
+                              </div>
+                            </th>
+                          );
+                        });
+                      })
+                    ) : (
+                      // Legacy: single column per grader
+                      activeExperiment.graderIds.map((graderId) => {
+                        const grader = graders.find((g) => g.id === graderId);
+                        return <th key={graderId}>{grader?.name || graderId}</th>;
+                      })
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -253,40 +326,40 @@ export default function ExperimentsPage() {
                       <td className="font-mono text-sm max-w-[200px] truncate">
                         {tc.input}
                       </td>
-                      {activeExperiment.graderIds.map((graderId) => {
-                        const result = activeExperiment.results?.find(
-                          (r) => r.testCaseId === tc.id && r.graderId === graderId
-                        );
-
-                        if (!result) {
-                          return <td key={graderId}>—</td>;
-                        }
-
-                        return (
-                          <td key={graderId}>
-                            <div className="group relative">
-                              <span
-                                className={`badge ${result.pass ? 'badge-pass' : 'badge-fail'}`}
-                              >
-                                {result.pass ? (
-                                  <Check className="h-3 w-3 mr-1" />
+                      {hasCandidates
+                        ? activeExperiment.candidateIds!.map((candidateId) =>
+                            activeExperiment.graderIds.map((graderId) => {
+                              const result = activeExperiment.results?.find(
+                                (r) =>
+                                  r.testCaseId === tc.id &&
+                                  r.graderId === graderId &&
+                                  r.candidateId === candidateId
+                              );
+                              return (
+                                <td key={`${candidateId}-${graderId}`}>
+                                  {result ? (
+                                    <ResultCell result={result} />
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
+                                </td>
+                              );
+                            })
+                          )
+                        : activeExperiment.graderIds.map((graderId) => {
+                            const result = activeExperiment.results?.find(
+                              (r) => r.testCaseId === tc.id && r.graderId === graderId
+                            );
+                            return (
+                              <td key={graderId}>
+                                {result ? (
+                                  <ResultCell result={result} />
                                 ) : (
-                                  <X className="h-3 w-3 mr-1" />
+                                  <span className="text-muted-foreground">-</span>
                                 )}
-                                {result.pass ? 'Pass' : 'Fail'}
-                              </span>
-
-                              {/* Tooltip with reason */}
-                              <div className="absolute hidden group-hover:block z-10 bottom-full left-0 mb-2 w-64 p-2 bg-card border border-border rounded-md shadow-lg text-xs">
-                                <p className="font-medium mb-1">
-                                  Score: {((result.score || 0) * 100).toFixed(0)}%
-                                </p>
-                                <p className="text-muted-foreground">{result.reason}</p>
-                              </div>
-                            </div>
-                          </td>
-                        );
-                      })}
+                              </td>
+                            );
+                          })}
                     </tr>
                   ))}
                 </tbody>
@@ -307,6 +380,7 @@ export default function ExperimentsPage() {
           <div className="grid gap-2">
             {experiments.slice(0, 10).map((exp) => {
               const dataset = datasets.find((d) => d.id === exp.datasetId);
+              const hasCands = exp.candidateIds && exp.candidateIds.length > 0;
               return (
                 <button
                   key={exp.id}
@@ -322,6 +396,7 @@ export default function ExperimentsPage() {
                       <p className="text-sm text-muted-foreground">
                         {dataset?.name || 'Unknown dataset'} ·{' '}
                         {exp.graderIds.length} grader(s)
+                        {hasCands && ` · ${exp.candidateIds!.length} candidate(s)`}
                       </p>
                     </div>
                     <span
@@ -342,6 +417,36 @@ export default function ExperimentsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ResultCell({ result }: { result: { pass: boolean; score?: number; reason?: string; generatedOutput?: string; latencyMs?: number } }) {
+  return (
+    <div className="group relative">
+      <span className={`badge ${result.pass ? 'badge-pass' : 'badge-fail'}`}>
+        {result.pass ? <Check className="h-3 w-3 mr-1" /> : <X className="h-3 w-3 mr-1" />}
+        {result.pass ? 'Pass' : 'Fail'}
+      </span>
+
+      <div className="absolute hidden group-hover:block z-10 bottom-full left-0 mb-2 w-72 p-2 bg-card border border-border rounded-md shadow-lg text-xs">
+        <p className="font-medium mb-1">
+          Score: {((result.score || 0) * 100).toFixed(0)}%
+          {result.latencyMs !== undefined && (
+            <span className="text-muted-foreground ml-2">{result.latencyMs}ms</span>
+          )}
+        </p>
+        <p className="text-muted-foreground">{result.reason}</p>
+        {result.generatedOutput && (
+          <div className="mt-2 pt-2 border-t border-border">
+            <p className="font-medium mb-0.5">Generated Output:</p>
+            <p className="text-muted-foreground font-mono whitespace-pre-wrap">
+              {result.generatedOutput.substring(0, 200)}
+              {result.generatedOutput.length > 200 && '...'}
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

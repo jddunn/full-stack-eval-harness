@@ -26,6 +26,31 @@ const GRADER_TYPES: { value: GraderType; label: string; description: string }[] 
     label: 'Faithfulness',
     description: 'Checks if output is faithful to provided context (RAGAS-inspired)',
   },
+  {
+    value: 'contains',
+    label: 'Contains',
+    description: 'Checks if output contains required substrings',
+  },
+  {
+    value: 'regex',
+    label: 'Regex Match',
+    description: 'Checks if output matches a regular expression pattern',
+  },
+  {
+    value: 'json-schema',
+    label: 'JSON Schema',
+    description: 'Validates output is valid JSON matching a schema',
+  },
+  {
+    value: 'answer-relevancy',
+    label: 'Answer Relevancy',
+    description: 'Measures if the answer is relevant to the question (RAGAS-inspired)',
+  },
+  {
+    value: 'context-relevancy',
+    label: 'Context Relevancy',
+    description: 'Measures if retrieved context is relevant to the question (RAGAS-inspired)',
+  },
 ];
 
 function Tooltip({ text }: { text: string }) {
@@ -174,10 +199,7 @@ export default function GradersPage() {
         </div>
         <div className="flex gap-2">
           <div className="relative">
-            <button
-              onClick={() => setShowPresets(!showPresets)}
-              className="btn-secondary"
-            >
+            <button onClick={() => setShowPresets(!showPresets)} className="btn-secondary">
               <Sparkles className="h-4 w-4 mr-2" />
               Load Preset
             </button>
@@ -198,9 +220,7 @@ export default function GradersPage() {
                       <span className="font-medium text-sm">{preset.name}</span>
                       <Tooltip text={preset.tooltip} />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {preset.description}
-                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{preset.description}</p>
                   </button>
                 ))}
               </div>
@@ -239,14 +259,10 @@ export default function GradersPage() {
                       <span className="badge bg-muted text-muted-foreground">
                         {typeInfo?.label || grader.type}
                       </span>
-                      {typeInfo && (
-                        <Tooltip text={typeInfo.description} />
-                      )}
+                      {typeInfo && <Tooltip text={typeInfo.description} />}
                     </div>
                     {grader.description && (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {grader.description}
-                      </p>
+                      <p className="text-sm text-muted-foreground mt-1">{grader.description}</p>
                     )}
                     {grader.rubric && (
                       <p className="text-xs text-muted-foreground mt-2 font-mono truncate">
@@ -367,12 +383,7 @@ export default function GradersPage() {
       )}
 
       {/* Click outside to close presets dropdown */}
-      {showPresets && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setShowPresets(false)}
-        />
-      )}
+      {showPresets && <div className="fixed inset-0 z-40" onClick={() => setShowPresets(false)} />}
     </div>
   );
 }
