@@ -2,7 +2,16 @@ import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { nanoid } from 'nanoid';
 import { DB_ADAPTER, IDbAdapter } from '../database/db.module';
 
-export type GraderType = 'exact-match' | 'llm-judge' | 'semantic-similarity' | 'faithfulness';
+export type GraderType =
+  | 'exact-match'
+  | 'llm-judge'
+  | 'semantic-similarity'
+  | 'faithfulness'
+  | 'contains'
+  | 'regex'
+  | 'json-schema'
+  | 'answer-relevancy'
+  | 'context-relevancy';
 
 export interface CreateGraderDto {
   name: string;
@@ -23,7 +32,7 @@ export interface UpdateGraderDto {
 export class GradersService {
   constructor(
     @Inject(DB_ADAPTER)
-    private db: IDbAdapter,
+    private db: IDbAdapter
   ) {}
 
   /**

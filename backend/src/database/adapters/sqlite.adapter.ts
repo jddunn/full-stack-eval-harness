@@ -11,12 +11,15 @@ import {
   Dataset,
   TestCase,
   Grader,
+  Candidate,
   Experiment,
   ExperimentResult,
+  MetadataSchema,
   Settings,
   InsertDataset,
   InsertTestCase,
   InsertGrader,
+  InsertCandidate,
   InsertExperiment,
   InsertExperimentResult,
 } from '../interfaces/db-adapter.interface';
@@ -76,11 +79,30 @@ export class SqliteAdapter implements IDbAdapter {
         updated_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS candidates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        runner_type TEXT NOT NULL,
+        system_prompt TEXT,
+        user_prompt_template TEXT,
+        model_config TEXT,
+        endpoint_url TEXT,
+        endpoint_method TEXT,
+        endpoint_headers TEXT,
+        endpoint_body_template TEXT,
+        parent_id TEXT,
+        variant_label TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS experiments (
         id TEXT PRIMARY KEY,
         name TEXT,
         dataset_id TEXT NOT NULL REFERENCES datasets(id),
         grader_ids TEXT NOT NULL,
+        candidate_ids TEXT,
         status TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         completed_at INTEGER
@@ -91,11 +113,22 @@ export class SqliteAdapter implements IDbAdapter {
         experiment_id TEXT NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
         test_case_id TEXT NOT NULL REFERENCES test_cases(id),
         grader_id TEXT NOT NULL REFERENCES graders(id),
+        candidate_id TEXT,
         pass INTEGER NOT NULL,
         score REAL,
         reason TEXT,
         output TEXT,
+        generated_output TEXT,
+        latency_ms INTEGER,
         created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS metadata_schemas (
+        id TEXT PRIMARY KEY,
+        dataset_id TEXT NOT NULL UNIQUE REFERENCES datasets(id) ON DELETE CASCADE,
+        schema_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS settings (
@@ -107,10 +140,55 @@ export class SqliteAdapter implements IDbAdapter {
 
       CREATE INDEX IF NOT EXISTS idx_test_cases_dataset ON test_cases(dataset_id);
       CREATE INDEX IF NOT EXISTS idx_results_experiment ON experiment_results(experiment_id);
+      CREATE INDEX IF NOT EXISTS idx_candidates_parent ON candidates(parent_id);
       CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(key);
     `);
 
+    // Migrations for existing databases (must run before indexes on new columns)
+    this.migrateColumns();
+
+    // Indexes on migrated columns (safe after migration)
+    this.sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_results_candidate ON experiment_results(candidate_id);
+    `);
+
     console.log('SQLite database initialized at:', this.filePath);
+  }
+
+  private migrateColumns() {
+    const migrations: Array<{ table: string; column: string; sql: string }> = [
+      {
+        table: 'experiments',
+        column: 'candidate_ids',
+        sql: 'ALTER TABLE experiments ADD COLUMN candidate_ids TEXT',
+      },
+      {
+        table: 'experiment_results',
+        column: 'candidate_id',
+        sql: 'ALTER TABLE experiment_results ADD COLUMN candidate_id TEXT',
+      },
+      {
+        table: 'experiment_results',
+        column: 'generated_output',
+        sql: 'ALTER TABLE experiment_results ADD COLUMN generated_output TEXT',
+      },
+      {
+        table: 'experiment_results',
+        column: 'latency_ms',
+        sql: 'ALTER TABLE experiment_results ADD COLUMN latency_ms INTEGER',
+      },
+    ];
+
+    for (const migration of migrations) {
+      try {
+        const cols = this.sqlite.pragma(`table_info(${migration.table})`);
+        if (!cols.find((c: any) => c.name === migration.column)) {
+          this.sqlite.exec(migration.sql);
+        }
+      } catch {
+        /* table may not exist yet */
+      }
+    }
   }
 
   async close(): Promise<void> {
@@ -128,10 +206,7 @@ export class SqliteAdapter implements IDbAdapter {
   }
 
   async findDatasetById(id: string): Promise<Dataset | null> {
-    const [result] = await this.db
-      .select()
-      .from(schema.datasets)
-      .where(eq(schema.datasets.id, id));
+    const [result] = await this.db.select().from(schema.datasets).where(eq(schema.datasets.id, id));
     return result || null;
   }
 
@@ -142,19 +217,14 @@ export class SqliteAdapter implements IDbAdapter {
 
   async updateDataset(
     id: string,
-    updates: Partial<Omit<Dataset, 'id' | 'createdAt'>>,
+    updates: Partial<Omit<Dataset, 'id' | 'createdAt'>>
   ): Promise<Dataset | null> {
-    await this.db
-      .update(schema.datasets)
-      .set(updates)
-      .where(eq(schema.datasets.id, id));
+    await this.db.update(schema.datasets).set(updates).where(eq(schema.datasets.id, id));
     return this.findDatasetById(id);
   }
 
   async deleteDataset(id: string): Promise<boolean> {
-    const result = await this.db
-      .delete(schema.datasets)
-      .where(eq(schema.datasets.id, id));
+    await this.db.delete(schema.datasets).where(eq(schema.datasets.id, id));
     return true;
   }
 
@@ -163,10 +233,7 @@ export class SqliteAdapter implements IDbAdapter {
   // ============================================================
 
   async findTestCasesByDatasetId(datasetId: string): Promise<TestCase[]> {
-    return this.db
-      .select()
-      .from(schema.testCases)
-      .where(eq(schema.testCases.datasetId, datasetId));
+    return this.db.select().from(schema.testCases).where(eq(schema.testCases.datasetId, datasetId));
   }
 
   async findTestCaseById(id: string): Promise<TestCase | null> {
@@ -184,12 +251,9 @@ export class SqliteAdapter implements IDbAdapter {
 
   async updateTestCase(
     id: string,
-    updates: Partial<Omit<TestCase, 'id' | 'datasetId' | 'createdAt'>>,
+    updates: Partial<Omit<TestCase, 'id' | 'datasetId' | 'createdAt'>>
   ): Promise<TestCase | null> {
-    await this.db
-      .update(schema.testCases)
-      .set(updates)
-      .where(eq(schema.testCases.id, id));
+    await this.db.update(schema.testCases).set(updates).where(eq(schema.testCases.id, id));
     return this.findTestCaseById(id);
   }
 
@@ -212,19 +276,13 @@ export class SqliteAdapter implements IDbAdapter {
   }
 
   async findGraderById(id: string): Promise<Grader | null> {
-    const [result] = await this.db
-      .select()
-      .from(schema.graders)
-      .where(eq(schema.graders.id, id));
+    const [result] = await this.db.select().from(schema.graders).where(eq(schema.graders.id, id));
     return result || null;
   }
 
   async findGradersByIds(ids: string[]): Promise<Grader[]> {
     if (ids.length === 0) return [];
-    return this.db
-      .select()
-      .from(schema.graders)
-      .where(inArray(schema.graders.id, ids));
+    return this.db.select().from(schema.graders).where(inArray(schema.graders.id, ids));
   }
 
   async insertGrader(grader: InsertGrader): Promise<Grader> {
@@ -234,17 +292,60 @@ export class SqliteAdapter implements IDbAdapter {
 
   async updateGrader(
     id: string,
-    updates: Partial<Omit<Grader, 'id' | 'createdAt'>>,
+    updates: Partial<Omit<Grader, 'id' | 'createdAt'>>
   ): Promise<Grader | null> {
-    await this.db
-      .update(schema.graders)
-      .set(updates)
-      .where(eq(schema.graders.id, id));
+    await this.db.update(schema.graders).set(updates).where(eq(schema.graders.id, id));
     return this.findGraderById(id);
   }
 
   async deleteGrader(id: string): Promise<boolean> {
     await this.db.delete(schema.graders).where(eq(schema.graders.id, id));
+    return true;
+  }
+
+  // ============================================================
+  // Candidates
+  // ============================================================
+
+  async findAllCandidates(): Promise<Candidate[]> {
+    return this.db.select().from(schema.candidates);
+  }
+
+  async findCandidateById(id: string): Promise<Candidate | null> {
+    const [result] = await this.db
+      .select()
+      .from(schema.candidates)
+      .where(eq(schema.candidates.id, id));
+    return result || null;
+  }
+
+  async findCandidatesByIds(ids: string[]): Promise<Candidate[]> {
+    if (ids.length === 0) return [];
+    return this.db.select().from(schema.candidates).where(inArray(schema.candidates.id, ids));
+  }
+
+  async findCandidateVariants(parentId: string): Promise<Candidate[]> {
+    return this.db
+      .select()
+      .from(schema.candidates)
+      .where(eq(schema.candidates.parentId, parentId));
+  }
+
+  async insertCandidate(candidate: InsertCandidate): Promise<Candidate> {
+    await this.db.insert(schema.candidates).values(candidate);
+    return candidate as Candidate;
+  }
+
+  async updateCandidate(
+    id: string,
+    updates: Partial<Omit<Candidate, 'id' | 'createdAt'>>
+  ): Promise<Candidate | null> {
+    await this.db.update(schema.candidates).set(updates).where(eq(schema.candidates.id, id));
+    return this.findCandidateById(id);
+  }
+
+  async deleteCandidate(id: string): Promise<boolean> {
+    await this.db.delete(schema.candidates).where(eq(schema.candidates.id, id));
     return true;
   }
 
@@ -271,12 +372,9 @@ export class SqliteAdapter implements IDbAdapter {
 
   async updateExperiment(
     id: string,
-    updates: Partial<Omit<Experiment, 'id' | 'createdAt'>>,
+    updates: Partial<Omit<Experiment, 'id' | 'createdAt'>>
   ): Promise<Experiment | null> {
-    await this.db
-      .update(schema.experiments)
-      .set(updates)
-      .where(eq(schema.experiments.id, id));
+    await this.db.update(schema.experiments).set(updates).where(eq(schema.experiments.id, id));
     return this.findExperimentById(id);
   }
 
@@ -317,29 +415,92 @@ export class SqliteAdapter implements IDbAdapter {
     passed: number;
     failed: number;
     byGrader: Record<string, { total: number; passed: number; avgScore: number }>;
+    byCandidate: Record<
+      string,
+      {
+        total: number;
+        passed: number;
+        avgScore: number;
+        byGrader: Record<string, { total: number; passed: number; avgScore: number }>;
+      }
+    >;
   }> {
     const results = await this.findResultsByExperimentId(experimentId);
 
     const byGrader: Record<string, { total: number; passed: number; scores: number[] }> = {};
+    const byCandidate: Record<
+      string,
+      {
+        total: number;
+        passed: number;
+        scores: number[];
+        byGrader: Record<string, { total: number; passed: number; scores: number[] }>;
+      }
+    > = {};
 
     for (const result of results) {
+      // By grader
       if (!byGrader[result.graderId]) {
         byGrader[result.graderId] = { total: 0, passed: 0, scores: [] };
       }
       byGrader[result.graderId].total++;
       if (result.pass) byGrader[result.graderId].passed++;
       if (result.score !== null) byGrader[result.graderId].scores.push(result.score);
+
+      // By candidate
+      const candId = result.candidateId || '_default';
+      if (!byCandidate[candId]) {
+        byCandidate[candId] = { total: 0, passed: 0, scores: [], byGrader: {} };
+      }
+      byCandidate[candId].total++;
+      if (result.pass) byCandidate[candId].passed++;
+      if (result.score !== null) byCandidate[candId].scores.push(result.score);
+
+      if (!byCandidate[candId].byGrader[result.graderId]) {
+        byCandidate[candId].byGrader[result.graderId] = { total: 0, passed: 0, scores: [] };
+      }
+      byCandidate[candId].byGrader[result.graderId].total++;
+      if (result.pass) byCandidate[candId].byGrader[result.graderId].passed++;
+      if (result.score !== null) {
+        byCandidate[candId].byGrader[result.graderId].scores.push(result.score);
+      }
     }
+
+    const avgOf = (scores: number[]) =>
+      scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
 
     const finalByGrader: Record<string, { total: number; passed: number; avgScore: number }> = {};
     for (const [graderId, data] of Object.entries(byGrader)) {
-      const avgScore = data.scores.length > 0
-        ? data.scores.reduce((a, b) => a + b, 0) / data.scores.length
-        : 0;
       finalByGrader[graderId] = {
         total: data.total,
         passed: data.passed,
-        avgScore,
+        avgScore: avgOf(data.scores),
+      };
+    }
+
+    const finalByCandidate: Record<
+      string,
+      {
+        total: number;
+        passed: number;
+        avgScore: number;
+        byGrader: Record<string, { total: number; passed: number; avgScore: number }>;
+      }
+    > = {};
+    for (const [candId, data] of Object.entries(byCandidate)) {
+      const candByGrader: Record<string, { total: number; passed: number; avgScore: number }> = {};
+      for (const [gid, gdata] of Object.entries(data.byGrader)) {
+        candByGrader[gid] = {
+          total: gdata.total,
+          passed: gdata.passed,
+          avgScore: avgOf(gdata.scores),
+        };
+      }
+      finalByCandidate[candId] = {
+        total: data.total,
+        passed: data.passed,
+        avgScore: avgOf(data.scores),
+        byGrader: candByGrader,
       };
     }
 
@@ -348,7 +509,50 @@ export class SqliteAdapter implements IDbAdapter {
       passed: results.filter((r) => r.pass).length,
       failed: results.filter((r) => !r.pass).length,
       byGrader: finalByGrader,
+      byCandidate: finalByCandidate,
     };
+  }
+
+  // ============================================================
+  // Metadata Schemas
+  // ============================================================
+
+  async findMetadataSchemaByDatasetId(datasetId: string): Promise<MetadataSchema | null> {
+    const [result] = await this.db
+      .select()
+      .from(schema.metadataSchemas)
+      .where(eq(schema.metadataSchemas.datasetId, datasetId));
+    return result || null;
+  }
+
+  async upsertMetadataSchema(datasetId: string, schemaJson: string): Promise<MetadataSchema> {
+    const existing = await this.findMetadataSchemaByDatasetId(datasetId);
+    const now = new Date();
+
+    if (existing) {
+      await this.db
+        .update(schema.metadataSchemas)
+        .set({ schemaJson, updatedAt: now })
+        .where(eq(schema.metadataSchemas.datasetId, datasetId));
+      return { ...existing, schemaJson, updatedAt: now };
+    }
+
+    const newSchema: MetadataSchema = {
+      id: nanoid(),
+      datasetId,
+      schemaJson,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.db.insert(schema.metadataSchemas).values(newSchema);
+    return newSchema;
+  }
+
+  async deleteMetadataSchema(datasetId: string): Promise<boolean> {
+    await this.db
+      .delete(schema.metadataSchemas)
+      .where(eq(schema.metadataSchemas.datasetId, datasetId));
+    return true;
   }
 
   // ============================================================

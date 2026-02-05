@@ -5,14 +5,14 @@
   "description": "Lightweight eval harness for running AI graders against test cases",
   "author": "Johnny Dunn",
   "scripts": {
-    "backend:dev": "pnpm --filter ./backend run start:dev",
-    "backend:build": "pnpm --filter ./backend run build",
-    "frontend:dev": "pnpm --filter ./frontend run dev",
-    "frontend:build": "pnpm --filter ./frontend run build",
+    "backend:dev": "pnpm --dir backend run start:dev",
+    "backend:build": "pnpm --dir backend run build",
+    "frontend:dev": "pnpm --dir frontend run dev",
+    "frontend:build": "pnpm --dir frontend run build",
     "dev": "concurrently \"pnpm backend:dev\" \"pnpm frontend:dev\"",
     "build": "pnpm backend:build && pnpm frontend:build",
-    "test": "pnpm --filter ./backend run test",
-    "lint": "pnpm --filter ./backend run lint && pnpm --filter ./frontend run lint"
+    "test": "pnpm --dir backend run test",
+    "lint": "pnpm --dir backend run lint && pnpm --dir frontend run lint"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
