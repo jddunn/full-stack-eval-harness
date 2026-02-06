@@ -14,15 +14,30 @@ export interface AppSettings {
   llm: LlmSettings;
 }
 
-const DEFAULT_SETTINGS: AppSettings = {
-  llm: {
-    provider: 'ollama',
-    model: 'dolphin-llama3:8b',
-    baseUrl: 'http://localhost:11434',
-    temperature: 0.7,
-    maxTokens: 1024,
-  },
-};
+/**
+ * Resolve the API key from env vars based on the active provider.
+ */
+function getEnvApiKey(provider: string): string | undefined {
+  if (provider === 'openai') return process.env.OPENAI_API_KEY || undefined;
+  if (provider === 'anthropic') return process.env.ANTHROPIC_API_KEY || undefined;
+  return undefined;
+}
+
+function getDefaultSettings(): AppSettings {
+  const provider = (process.env.LLM_PROVIDER as LlmSettings['provider']) || 'ollama';
+  return {
+    llm: {
+      provider,
+      model: process.env.LLM_MODEL || (process.env.OLLAMA_MODEL as string) || 'dolphin-llama3:8b',
+      apiKey: getEnvApiKey(provider),
+      baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+      temperature: process.env.LLM_TEMPERATURE ? parseFloat(process.env.LLM_TEMPERATURE) : 0.7,
+      maxTokens: process.env.LLM_MAX_TOKENS ? parseInt(process.env.LLM_MAX_TOKENS, 10) : 1024,
+    },
+  };
+}
+
+const DEFAULT_SETTINGS = getDefaultSettings();
 
 const SETTINGS_KEYS = {
   LLM_PROVIDER: 'llm.provider',
@@ -52,7 +67,10 @@ export class SettingsService {
         provider: (settingsMap.get(SETTINGS_KEYS.LLM_PROVIDER) as LlmSettings['provider']) ||
           DEFAULT_SETTINGS.llm.provider,
         model: settingsMap.get(SETTINGS_KEYS.LLM_MODEL) || DEFAULT_SETTINGS.llm.model,
-        apiKey: settingsMap.get(SETTINGS_KEYS.LLM_API_KEY) || undefined,
+        apiKey: settingsMap.get(SETTINGS_KEYS.LLM_API_KEY) ||
+          getEnvApiKey(
+            (settingsMap.get(SETTINGS_KEYS.LLM_PROVIDER) as string) || DEFAULT_SETTINGS.llm.provider,
+          ),
         baseUrl: settingsMap.get(SETTINGS_KEYS.LLM_BASE_URL) || DEFAULT_SETTINGS.llm.baseUrl,
         temperature: settingsMap.has(SETTINGS_KEYS.LLM_TEMPERATURE)
           ? parseFloat(settingsMap.get(SETTINGS_KEYS.LLM_TEMPERATURE)!)

@@ -1,6 +1,6 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { LlmService } from '../llm/llm.service';
-import { CandidatesService } from './candidates.service';
+import { renderTemplate } from './template-utils';
 
 export interface CandidateRunResult {
   output: string;
@@ -17,10 +17,7 @@ export interface TestCaseInput {
 
 @Injectable()
 export class CandidateRunnerService {
-  constructor(
-    private llmService: LlmService,
-    private candidatesService: CandidatesService
-  ) {}
+  constructor(private llmService: LlmService) {}
 
   /**
    * Run a candidate against a single test case.
@@ -52,26 +49,27 @@ export class CandidateRunnerService {
    * Interpolates {{input}}, {{context}}, {{metadata.*}} into the template.
    */
   private async runLlmPrompt(candidate: any, testCase: TestCaseInput): Promise<string> {
-    const vars: Record<string, string> = {
+    const vars: Record<string, unknown> = {
       input: testCase.input,
       context: testCase.context || '',
       expected: testCase.expectedOutput || '',
+      metadata: {},
     };
 
-    // Flatten metadata for template substitution
+    // Provide both {{metadata.key}} and {{key}} access for convenience.
     if (testCase.metadata) {
       for (const [key, value] of Object.entries(testCase.metadata)) {
-        vars[`metadata.${key}`] = String(value);
-        vars[key] = String(value); // Also available without prefix
+        (vars.metadata as Record<string, unknown>)[key] = value;
+        vars[key] = value;
       }
     }
 
     const userPrompt = candidate.userPromptTemplate
-      ? this.candidatesService.renderTemplate(candidate.userPromptTemplate, vars)
+      ? renderTemplate(candidate.userPromptTemplate, vars)
       : testCase.input;
 
     const systemPrompt = candidate.systemPrompt
-      ? this.candidatesService.renderTemplate(candidate.systemPrompt, vars)
+      ? renderTemplate(candidate.systemPrompt, vars)
       : undefined;
 
     // Model config overrides (provider/model for multi-model comparison)
@@ -107,12 +105,19 @@ export class CandidateRunnerService {
     let body: string | undefined;
     if (method !== 'GET') {
       if (candidate.endpointBodyTemplate) {
-        const vars: Record<string, string> = {
+        const vars: Record<string, unknown> = {
           input: testCase.input,
           context: testCase.context || '',
           expected: testCase.expectedOutput || '',
+          metadata: {},
         };
-        body = this.candidatesService.renderTemplate(candidate.endpointBodyTemplate, vars);
+        if (testCase.metadata) {
+          for (const [key, value] of Object.entries(testCase.metadata)) {
+            (vars.metadata as Record<string, unknown>)[key] = value;
+            vars[key] = value;
+          }
+        }
+        body = renderTemplate(candidate.endpointBodyTemplate, vars);
       } else {
         body = JSON.stringify({
           input: testCase.input,

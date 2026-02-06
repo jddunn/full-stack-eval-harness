@@ -4,7 +4,7 @@ import { eq, inArray, sql } from 'drizzle-orm';
 import * as BetterSqlite3 from 'better-sqlite3';
 import { existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'crypto';
 
 import {
   IDbAdapter,
@@ -538,7 +538,7 @@ export class SqliteAdapter implements IDbAdapter {
     }
 
     const newSchema: MetadataSchema = {
-      id: nanoid(),
+      id: randomUUID(),
       datasetId,
       schemaJson,
       createdAt: now,
@@ -583,7 +583,7 @@ export class SqliteAdapter implements IDbAdapter {
       return { ...existing, value, updatedAt: now };
     } else {
       const setting: Settings = {
-        id: nanoid(),
+        id: randomUUID(),
         key,
         value,
         updatedAt: now,

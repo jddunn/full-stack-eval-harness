@@ -97,6 +97,13 @@ export class LlmService {
     };
   }
 
+  /**
+   * Get full LLM settings for graders that need provider config.
+   */
+  async getFullSettings(): Promise<LlmSettings> {
+    return this.getSettings();
+  }
+
   // OpenAI implementation
   private async completeOpenAI(
     settings: LlmSettings,

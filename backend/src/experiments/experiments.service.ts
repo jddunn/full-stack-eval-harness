@@ -1,10 +1,10 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'crypto';
 import { Subject, Observable } from 'rxjs';
 import { DB_ADAPTER, IDbAdapter } from '../database/db.module';
 import { DatasetsService } from '../datasets/datasets.service';
 import { GradersService } from '../graders/graders.service';
-import { CandidatesService } from '../candidates/candidates.service';
+import { PromptLoaderService, LoadedPrompt } from '../candidates/prompt-loader.service';
 import { CandidateRunnerService } from '../candidates/candidate-runner.service';
 import { LlmService } from '../llm/llm.service';
 import { createGrader, GraderType, EvalInput } from '../eval-engine';
@@ -42,7 +42,7 @@ export class ExperimentsService {
     private db: IDbAdapter,
     private datasetsService: DatasetsService,
     private gradersService: GradersService,
-    private candidatesService: CandidatesService,
+    private promptLoaderService: PromptLoaderService,
     private candidateRunnerService: CandidateRunnerService,
     private llmService: LlmService
   ) {}
@@ -89,11 +89,11 @@ export class ExperimentsService {
     // Fetch candidates if provided
     let candidates: any[] = [];
     if (dto.candidateIds && dto.candidateIds.length > 0) {
-      candidates = await this.candidatesService.findMany(dto.candidateIds);
+      candidates = this.promptLoaderService.findMany(dto.candidateIds);
     }
 
     const experiment = await this.db.insertExperiment({
-      id: nanoid(),
+      id: randomUUID(),
       name: dto.name || `Experiment ${new Date().toISOString().slice(0, 16)}`,
       datasetId: dto.datasetId,
       graderIds: JSON.stringify(dto.graderIds),
@@ -163,17 +163,21 @@ export class ExperimentsService {
               candidateId: candidate.id,
             });
 
-            const metadata = testCase.metadata
+            const metadataFromRow = testCase.metadata
               ? typeof testCase.metadata === 'string'
                 ? JSON.parse(testCase.metadata)
                 : testCase.metadata
               : undefined;
+            const metadata = {
+              ...(metadataFromRow || {}),
+              ...(testCase.customFields || {}),
+            };
 
             const runResult = await this.candidateRunnerService.run(candidate, {
               input: testCase.input,
               expectedOutput: testCase.expectedOutput || undefined,
               context: testCase.context || undefined,
-              metadata,
+              metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
             });
 
             const generatedOutput = runResult.output;
@@ -222,7 +226,7 @@ export class ExperimentsService {
                 const result = await grader.evaluate(evalInput);
 
                 await this.db.insertResult({
-                  id: nanoid(),
+                  id: randomUUID(),
                   experimentId,
                   testCaseId: testCase.id,
                   graderId: graderDef.id,
@@ -252,7 +256,7 @@ export class ExperimentsService {
                 });
               } catch (error) {
                 await this.db.insertResult({
-                  id: nanoid(),
+                  id: randomUUID(),
                   experimentId,
                   testCaseId: testCase.id,
                   graderId: graderDef.id,
@@ -313,7 +317,7 @@ export class ExperimentsService {
               const result = await grader.evaluate(evalInput);
 
               await this.db.insertResult({
-                id: nanoid(),
+                id: randomUUID(),
                 experimentId,
                 testCaseId: testCase.id,
                 graderId: graderDef.id,
@@ -339,7 +343,7 @@ export class ExperimentsService {
               });
             } catch (error) {
               await this.db.insertResult({
-                id: nanoid(),
+                id: randomUUID(),
                 experimentId,
                 testCaseId: testCase.id,
                 graderId: graderDef.id,
@@ -404,19 +408,44 @@ export class ExperimentsService {
         ...data,
         passRate: data.total > 0 ? data.passed / data.total : 0,
       })),
-      candidateStats: Object.entries(stats.byCandidate).map(([candidateId, data]) => ({
-        candidateId,
-        total: data.total,
-        passed: data.passed,
-        avgScore: data.avgScore,
-        passRate: data.total > 0 ? data.passed / data.total : 0,
-        byGrader: Object.entries(data.byGrader).map(([gid, gdata]) => ({
+      candidateStats: Object.entries(stats.byCandidate).map(([candidateId, data]) => {
+        const byGraderArray = Object.entries(data.byGrader).map(([gid, gdata]) => ({
           graderId: gid,
           ...gdata,
           passRate: gdata.total > 0 ? gdata.passed / gdata.total : 0,
-        })),
-      })),
+        }));
+
+        // Compute weighted aggregate score using prompt's grader weights
+        const prompt = this.tryFindPrompt(candidateId);
+        const weights = prompt?.graderWeights || {};
+        let weightedSum = 0;
+        let weightTotal = 0;
+        for (const gs of byGraderArray) {
+          const w = weights[gs.graderId] || 1.0;
+          weightedSum += gs.avgScore * w;
+          weightTotal += w;
+        }
+        const weightedScore = weightTotal > 0 ? weightedSum / weightTotal : data.avgScore;
+
+        return {
+          candidateId,
+          total: data.total,
+          passed: data.passed,
+          avgScore: data.avgScore,
+          weightedScore,
+          passRate: data.total > 0 ? data.passed / data.total : 0,
+          byGrader: byGraderArray,
+        };
+      }),
     };
+  }
+
+  private tryFindPrompt(candidateId: string): LoadedPrompt | null {
+    try {
+      return this.promptLoaderService.findOne(candidateId);
+    } catch {
+      return null;
+    }
   }
 
   /**

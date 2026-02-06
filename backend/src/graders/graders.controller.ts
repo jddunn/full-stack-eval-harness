@@ -37,4 +37,9 @@ export class GradersController {
   remove(@Param('id') id: string) {
     return this.gradersService.remove(id);
   }
+
+  @Post('reload')
+  reload() {
+    return this.gradersService.reload();
+  }
 }

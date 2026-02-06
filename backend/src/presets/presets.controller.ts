@@ -1,8 +1,7 @@
 import { Controller, Get, Post, Param, Body } from '@nestjs/common';
-import { GRADER_PRESETS, DATASET_PRESETS, CANDIDATE_PRESETS } from './presets';
-import { DatasetsService } from '../datasets/datasets.service';
+import { GRADER_PRESETS } from './presets';
 import { GradersService } from '../graders/graders.service';
-import { CandidatesService } from '../candidates/candidates.service';
+import { DatasetsService } from '../datasets/datasets.service';
 import {
   SyntheticService,
   SyntheticGenerationRequest,
@@ -11,9 +10,8 @@ import {
 @Controller('presets')
 export class PresetsController {
   constructor(
-    private datasetsService: DatasetsService,
     private gradersService: GradersService,
-    private candidatesService: CandidatesService,
+    private datasetsService: DatasetsService,
     private syntheticService: SyntheticService,
   ) {}
 
@@ -26,14 +24,6 @@ export class PresetsController {
   }
 
   /**
-   * Get all dataset presets
-   */
-  @Get('datasets')
-  getDatasetPresets() {
-    return DATASET_PRESETS;
-  }
-
-  /**
    * Load a grader preset - creates a new grader from the preset
    */
   @Post('graders/:id/load')
@@ -41,6 +31,12 @@ export class PresetsController {
     const preset = GRADER_PRESETS.find((p) => p.id === id);
     if (!preset) {
       throw new Error(`Grader preset not found: ${id}`);
+    }
+
+    try {
+      return this.gradersService.findOne(id);
+    } catch {
+      // Continue and create from preset if not already present.
     }
 
     return this.gradersService.create({
@@ -53,106 +49,34 @@ export class PresetsController {
   }
 
   /**
-   * Load a dataset preset - creates a new dataset with test cases
-   */
-  @Post('datasets/:id/load')
-  async loadDatasetPreset(@Param('id') id: string) {
-    const preset = DATASET_PRESETS.find((p) => p.id === id);
-    if (!preset) {
-      throw new Error(`Dataset preset not found: ${id}`);
-    }
-
-    // Create the dataset
-    const dataset = await this.datasetsService.create({
-      name: preset.name,
-      description: preset.description,
-    });
-
-    // Add all test cases
-    for (const testCase of preset.testCases) {
-      await this.datasetsService.addTestCase(dataset.id, {
-        input: testCase.input,
-        expectedOutput: testCase.expectedOutput,
-        context: testCase.context,
-      });
-    }
-
-    // Return the full dataset with test cases
-    return this.datasetsService.findOne(dataset.id);
-  }
-
-  /**
-   * Load all presets at once - useful for demo/seed data
+   * Load all grader presets at once - useful for demo/seed data.
+   * Datasets are loaded from CSV files on startup (no seeding needed).
    */
   @Post('seed')
   async seedAll() {
     const results = {
       graders: [] as any[],
-      datasets: [] as any[],
+      skipped: [] as string[],
     };
 
-    // Load all grader presets
     for (const preset of GRADER_PRESETS) {
-      const grader = await this.gradersService.create({
-        name: preset.name,
-        description: preset.description,
-        type: preset.type,
-        rubric: preset.rubric,
-        config: preset.config,
-      });
-      results.graders.push(grader);
-    }
-
-    // Load all dataset presets
-    for (const preset of DATASET_PRESETS) {
-      const dataset = await this.datasetsService.create({
-        name: preset.name,
-        description: preset.description,
-      });
-
-      for (const testCase of preset.testCases) {
-        await this.datasetsService.addTestCase(dataset.id, {
-          input: testCase.input,
-          expectedOutput: testCase.expectedOutput,
-          context: testCase.context,
+      try {
+        const existing = this.gradersService.findOne(preset.id);
+        results.graders.push(existing);
+        results.skipped.push(preset.id);
+      } catch {
+        const grader = await this.gradersService.create({
+          name: preset.name,
+          description: preset.description,
+          type: preset.type,
+          rubric: preset.rubric,
+          config: preset.config,
         });
+        results.graders.push(grader);
       }
-
-      results.datasets.push(await this.datasetsService.findOne(dataset.id));
     }
 
     return results;
-  }
-
-  /**
-   * Get all candidate presets
-   */
-  @Get('candidates')
-  getCandidatePresets() {
-    return CANDIDATE_PRESETS;
-  }
-
-  /**
-   * Load a candidate preset - creates a new candidate from the preset
-   */
-  @Post('candidates/:id/load')
-  async loadCandidatePreset(@Param('id') id: string) {
-    const preset = CANDIDATE_PRESETS.find((p) => p.id === id);
-    if (!preset) {
-      throw new Error(`Candidate preset not found: ${id}`);
-    }
-
-    return this.candidatesService.create({
-      name: preset.name,
-      description: preset.description,
-      runnerType: preset.runnerType,
-      systemPrompt: preset.systemPrompt,
-      userPromptTemplate: preset.userPromptTemplate,
-      modelConfig: preset.modelConfig,
-      endpointUrl: preset.endpointUrl,
-      endpointMethod: preset.endpointMethod,
-      endpointBodyTemplate: preset.endpointBodyTemplate,
-    });
   }
 
   /**
@@ -164,31 +88,39 @@ export class PresetsController {
   }
 
   /**
-   * Generate synthetic test cases and create a dataset from them
+   * Generate synthetic test cases and save as a CSV dataset
    */
   @Post('synthetic/dataset')
   async generateSyntheticDataset(
     @Body()
     body: SyntheticGenerationRequest & { name: string; description?: string },
   ) {
-    // Generate test cases
     const testCases = await this.syntheticService.generateTestCases(body);
 
-    // Create dataset
-    const dataset = await this.datasetsService.create({
-      name: body.name,
-      description: body.description || `Synthetic ${body.style} dataset: ${body.topic}`,
-    });
-
-    // Add test cases
-    for (const testCase of testCases) {
-      await this.datasetsService.addTestCase(dataset.id, {
-        input: testCase.input,
-        expectedOutput: testCase.expectedOutput,
-        context: testCase.context,
-      });
+    // Build CSV content
+    const escCsv = (val: string) =>
+      '"' + (val || '').replace(/"/g, '""') + '"';
+    const lines = ['input,expected_output,context,metadata'];
+    for (const tc of testCases) {
+      lines.push(
+        [
+          escCsv(tc.input),
+          escCsv(tc.expectedOutput || ''),
+          escCsv(tc.context || ''),
+          '""',
+        ].join(','),
+      );
     }
 
-    return this.datasetsService.findOne(dataset.id);
+    const filename = body.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    return this.datasetsService.importCsv(filename, lines.join('\n') + '\n', {
+      name: body.name,
+      description:
+        body.description || `Synthetic ${body.style} dataset: ${body.topic}`,
+    });
   }
 }
