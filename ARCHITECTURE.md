@@ -11,7 +11,7 @@ This harness evaluates AI outputs against test cases using configurable graders.
 ```mermaid
 graph LR
     A[Frontend<br/>Next.js] <--> B[Backend<br/>NestJS]
-    B <--> C[Database<br/>SQLite/Postgres]
+    B <--> C[Database<br/>SQLite]
     B --> D[LLM Layer<br/>OpenAI/Anthropic/Ollama]
     B --> E[HTTP Endpoints<br/>External APIs]
 ```
@@ -20,17 +20,48 @@ graph LR
 
 ## Database: Why Drizzle + SQLite?
 
-**Drizzle ORM** was chosen because it's dialect-agnostic. The same schema definition works with SQLite (development) and PostgreSQL (production) with minimal changes—just swap the driver.
+**Drizzle ORM** keeps the schema definition portable across SQL dialects.
+This repo currently ships a SQLite adapter (`DB_TYPE=sqlite`). A PostgreSQL adapter is planned (`DB_TYPE=postgres` currently errors) but the schema is written with portability in mind.
 
 This matters for a skills demo: SQLite means zero setup (no Docker, no database server), but the code is production-ready if you want to scale later.
 
-**Source data** lives on disk: datasets as CSV files in `backend/datasets/`, prompts as markdown in `backend/prompts/`, graders as YAML in `backend/graders/`. **Runtime data** lives in SQLite: experiments, results, settings.
+### Storage Model: Disk vs SQLite
+
+There are two categories of data, stored in different places:
+
+**Disk (source of truth for definitions)** — human-editable, git-trackable:
+
+| What                 | Format                         | Directory           | Editable via                                          |
+| -------------------- | ------------------------------ | ------------------- | ----------------------------------------------------- |
+| Datasets             | `.csv` + optional `.meta.json` | `backend/datasets/` | Any text editor, spreadsheet, or UI upload            |
+| Candidates (prompts) | `.md` with YAML frontmatter    | `backend/prompts/`  | Text editor, UI detail page, or AI variant generation |
+| Graders              | `.yaml`                        | `backend/graders/`  | Text editor or UI                                     |
+
+All CRUD operations (create, update, delete) write back to disk immediately. The `DatasetLoaderService`, `PromptLoaderService`, and `GraderLoaderService` read files on startup and keep an in-memory cache that stays in sync with disk writes.
+
+**Variants** are regular `.md` files stored alongside their parent in the same **prompt family folder** under `backend/prompts/`:
+
+- `backend/prompts/{family}/base.md` is the parent prompt (ID = `{family}`)
+- `backend/prompts/{family}/{variant}.md` is a variant (ID = `{family}-{variant}`)
+
+Variants can be created manually, via the UI, or via AI generation — all methods write a `.md` file to disk. Delete a variant by removing its file or using the UI delete button.
+
+**SQLite (runtime data only)** — not human-editable, disposable:
+
+| What                 | Purpose                                                       |
+| -------------------- | ------------------------------------------------------------- |
+| `experiments`        | Experiment run configs (dataset, candidates, graders, status) |
+| `experiment_results` | Individual grader evaluations per test case per candidate     |
+| `settings`           | Runtime LLM config (provider, model, API key, temperature)    |
+
+The database file lives at `backend/data/evals.sqlite` (configurable via `DATABASE_PATH`). You can safely delete it to start fresh — all definitions (prompts, graders, datasets) live on disk and reload automatically.
+
+Schema tables for datasets, test cases, and graders exist primarily for experiment history and exports. Disk is still the source of truth: loader services read definitions from files, and experiments opportunistically insert missing dataset/test case/grader rows into SQLite as needed. (Candidate rows are currently not persisted.)
 
 Schema uses straightforward relational design:
+
 - `experiments` → `experiment_results` (one-to-many)
 - `experiment_results` references test case IDs (CSV-derived), grader IDs (YAML-derived), and optionally candidates
-
-Dataset, test case, and grader tables exist in the schema but are unused — the `DatasetLoaderService`, `PromptLoaderService`, and `GraderLoaderService` read files directly.
 
 ### Database Adapter Interface
 
@@ -55,12 +86,13 @@ classDiagram
     }
 
     IDbAdapter <|.. SqliteAdapter
-    IDbAdapter <|.. PostgresAdapter
+    %% PostgresAdapter planned (not implemented in this repo)
 ```
 
 SQLite adapter includes `migrateColumns()` for seamless upgrades of existing databases when new columns are added.
 
 **References:**
+
 - Drizzle ORM: https://orm.drizzle.team/
 - Drizzle dialect switching: https://orm.drizzle.team/docs/sql-schema-declaration
 
@@ -73,16 +105,14 @@ Graders are YAML files in `backend/graders/`. The `GraderLoaderService` reads th
 ### Storage Format
 
 ```yaml
-# backend/graders/faithfulness-strict.yaml
-name: Faithfulness (Strict)
-description: All claims must be supported by context (>90%)
-type: faithfulness
+# backend/graders/faithfulness.yaml
+name: Faithfulness
+description: Checks that response claims are grounded in provided context.
+  Adjust threshold in the UI.
+type: promptfoo
 config:
-  threshold: 0.9
-inspiration: |
-  RAGAS framework (Es et al., 2023). Extracts atomic claims from the output
-  and verifies each is supported by the provided context.
-reference: https://arxiv.org/abs/2309.15217
+  assertion: context-faithfulness
+  threshold: 0.8
 ```
 
 ### Base Abstraction
@@ -90,7 +120,7 @@ reference: https://arxiv.org/abs/2309.15217
 ```typescript
 interface GraderResult {
   pass: boolean;
-  score: number;  // 0.0 - 1.0
+  score: number; // 0.0 - 1.0
   reason: string;
 }
 
@@ -105,28 +135,25 @@ All graders extend this base. The interface is minimal—input, output, optional
 
 **Deterministic Graders:**
 
-| Type | Description | Inspired By |
-|------|-------------|-------------|
-| `exact-match` | Binary string equality | SQuAD EM metric (Rajpurkar et al., 2016) |
-| `contains` | Checks for required substrings | HELM (Liang et al., 2022) |
-| `regex` | Pattern matching | Standard eval pattern |
-| `json-schema` | Validates JSON structure | Function calling benchmarks |
+| Type          | Description                    | Inspired By                              |
+| ------------- | ------------------------------ | ---------------------------------------- |
+| `exact-match` | Binary string equality         | SQuAD EM metric (Rajpurkar et al., 2016) |
+| `contains`    | Checks for required substrings | HELM (Liang et al., 2022)                |
+| `regex`       | Pattern matching               | Standard eval pattern                    |
+| `json-schema` | Validates JSON structure       | Function calling benchmarks              |
 
-**LLM-Powered Graders:**
+**LLM-Powered Graders (implemented in `backend/src/eval-engine/`):**
 
-| Type | Description | Inspired By |
-|------|-------------|-------------|
-| `llm-judge` | Evaluates against a custom rubric | LLM-as-Judge (Zheng et al., 2023) |
-| `semantic-similarity` | Embedding cosine distance | Sentence-BERT (Reimers & Gurevych, 2019) |
-| `faithfulness` | Claims grounded in context | RAGAS-style (Es et al., 2023) |
-| `answer-relevancy` | Answer-question alignment | RAGAS-style (Es et al., 2023) |
-| `context-relevancy` | Context quality for Q&A | RAGAS-style (Es et al., 2023) |
+| Type                  | Description                       | Inspired By                              |
+| --------------------- | --------------------------------- | ---------------------------------------- |
+| `llm-judge`           | Evaluates against a custom rubric | LLM-as-Judge (Zheng et al., 2023)        |
+| `semantic-similarity` | Embedding cosine distance         | Sentence-BERT (Reimers & Gurevych, 2019) |
 
 **Promptfoo-Backed Graders:**
 
-| Type | Description | Inspired By |
-|------|-------------|-------------|
-| `promptfoo` | Wraps promptfoo's 40+ assertion types | promptfoo (MIT licensed) |
+| Type        | Description                                                                  | Inspired By              |
+| ----------- | ---------------------------------------------------------------------------- | ------------------------ |
+| `promptfoo` | Wraps promptfoo's assertion types (RAGAS metrics, llm-rubric, similar, etc.) | promptfoo (MIT licensed) |
 
 The `promptfoo` grader type delegates to promptfoo's battle-tested assertion engine. Configure the `assertion` in the grader's config:
 
@@ -152,9 +179,9 @@ config:
 ```
 
 **Why promptfoo?** Rather than reimplementing complex metrics like RAGAS (claim extraction + NLI verification), we delegate to promptfoo's production-tested implementations. Benefits:
+
 - MIT licensed, actively maintained
-- Used by Shopify, Discord, Microsoft
-- 40+ assertion types including all RAGAS-style metrics
+- Many assertion types including RAGAS-style metrics
 - Saves significant development and maintenance effort
 
 ### Research References
@@ -185,6 +212,7 @@ graph TD
 **LLM Prompt Runner**
 
 Interpolates template variables and calls the configured LLM:
+
 - `{{input}}` — test case input
 - `{{context}}` — test case context
 - `{{expected}}` — expected output (for few-shot patterns)
@@ -203,11 +231,57 @@ Variants can be created manually or generated in batches via `POST /api/prompts/
 
 ### Presets
 
-Candidates are now file-based markdown prompts in `backend/prompts/`. Six included: `analyst-full`, `analyst-citations`, `summarizer`, `json-extractor-strict`, `json-extractor-loose`, `text-rewriter`.
+Candidates are file-based markdown prompts in `backend/prompts/` (base prompts + variants). See the on-disk prompt files for the current set of included examples.
 
 ### Backwards Compatibility
 
 `candidateIds` is nullable on experiments and `candidateId` is nullable on results. When no candidates are selected, experiments fall back to grading `expectedOutput` directly (legacy behavior).
+
+---
+
+## Roadmap: Retrieval-Augmented Generation (RAG)
+
+**Current state:** The harness evaluates RAG-style behavior when context is already present in the dataset (`context` column). During an experiment, the `context` string is passed into graders (e.g. `context-faithfulness`, `context-relevance`, `context-recall`) and can be interpolated into prompt templates via `{{context}}`. The harness does **not** perform retrieval today.
+
+**Future state:** Make retrieval a first-class part of candidate execution.
+
+### Backend Integration Points
+
+This repo already includes a retrieval contract:
+
+- `backend/src/retrieval/retrieval.interfaces.ts` defines `IRetrievalService` (`ingest`, `retrieve`, `healthCheck`) plus `RetrievalConfig` and `RetrievedChunk`.
+- `backend/src/retrieval/retrieval.module.ts` is a stub module intended to be imported by `CandidatesModule`.
+
+Planned execution flow for a new runner type (e.g. `rag_prompt`):
+
+1. `CandidateRunnerService.run()` calls `RetrievalService.retrieve(testCase.input, candidate.retrievalConfig)`
+2. It builds a `context` string from retrieved chunks (and optionally a structured chunk list for audit/debug)
+3. It interpolates `{{context}}` into the prompt template and calls `LlmService.complete()`
+4. It grades using the retrieved context (not a pre-loaded dataset context), enabling end-to-end retrieval evaluation
+
+### Storage & Auditability
+
+To keep experiments reproducible and debuggable, retrieval traces should be persisted per `(experimentId, testCaseId, candidateId)`, including:
+
+- query (possibly rewritten)
+- latency
+- retrieved chunks (content + score + source metadata)
+
+This could be stored as JSON on the existing result rows or as a dedicated `retrieval_runs` table referenced by `experiment_results`.
+
+### UI/UX Extensions (Building On What Exists)
+
+- **Datasets**: add a "Sources" area and an "Index" action to ingest/chunk/embed documents.
+- **Candidates**: add retrieval configuration fields (method, topK, thresholds, chunking, vector store) alongside the existing model/template config and variant workflows.
+- **Experiments**: show retrieved context and chunk metadata in the existing result detail UI so "bad retrieval vs bad generation vs bad grading" is visible immediately.
+
+### Synthetic RAG Dataset Generation
+
+The existing synthetic dataset generator (`backend/src/presets/synthetic.service.ts`) can be extended to support RAG-specific fixtures, for example:
+
+- generate a small synthetic corpus (documents + metadata)
+- generate question/answer test cases with `expected_output`
+- optionally include "gold" context/citations in dataset metadata for recall-style grading and debugging
 
 ---
 
@@ -224,10 +298,10 @@ graph LR
 ```
 
 Key benefits:
+
 - Provider switching without code changes
-- Structured outputs via response schemas
-- Built-in retry and fallback logic
-- Streaming support for real-time feedback
+- Per-candidate overrides (provider/model/apiKey/baseUrl) on top of global Settings
+- Embeddings support for semantic similarity (OpenAI/Ollama, with fallback behavior for providers without embeddings)
 
 For local development, Ollama integration lets you run models without API costs or rate limits.
 
@@ -266,12 +340,14 @@ sequenceDiagram
 **WebSockets** — Full bidirectional communication. Overkill here. The client doesn't need to send anything during an experiment.
 
 **SSE (Server-Sent Events)** — Server pushes updates over a long-lived HTTP connection. Advantages:
+
 - One-way is exactly what we need (server → client)
 - Auto-reconnect built into browser API
 - Runs over plain HTTP—no proxy issues
 - NestJS has a simple `@Sse()` decorator
 
 **References:**
+
 - MDN EventSource: https://developer.mozilla.org/en-US/docs/Web/API/EventSource
 - NestJS SSE: https://docs.nestjs.com/techniques/server-sent-events
 
@@ -298,6 +374,7 @@ graph TD
 The UI uses Tailwind CSS with a clean monochromatic design—focus on the data.
 
 Primary navigation tabs:
+
 - **Datasets**: Inline editing, import/export (JSON/CSV), file paths, linked prompts
 - **Graders**: YAML-based with expandable details, research references, reload from disk
 - **Candidates**: Full detail page with frontmatter editing, save to disk, inline test panel
@@ -305,11 +382,13 @@ Primary navigation tabs:
 - **Settings**: Runtime LLM configuration (provider, model, API key)
 
 Additional page:
+
 - **About**: Documentation and references
 
 Source data (datasets, prompts, graders) is file-based. Runtime data (experiments, results, settings) persists in SQLite.
 
 **References:**
+
 - Tailwind CSS: https://tailwindcss.com/
 - Next.js: https://nextjs.org/docs
 

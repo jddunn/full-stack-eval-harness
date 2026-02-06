@@ -1,8 +1,0 @@
-name: "RAGAS Faithfulness"
-description: "Measures how grounded the response is in the provided context. Detects hallucinations by checking if all claims in the response can be traced back to the context."
-type: promptfoo
-config:
-  assertion: context-faithfulness
-  threshold: 0.7
-inspiration: "RAGAS framework (Retrieval Augmented Generation Assessment). Uses claim extraction + NLI verification to measure groundedness."
-reference: "https://arxiv.org/abs/2309.15217"

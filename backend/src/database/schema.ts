@@ -86,6 +86,7 @@ export const experiments = sqliteTable('experiments', {
     .references(() => datasets.id),
   graderIds: text('grader_ids').notNull(), // JSON array
   candidateIds: text('candidate_ids'), // JSON array, nullable for backwards compat
+  modelConfig: text('model_config'), // JSON: {provider?, model?}
   status: text('status').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   completedAt: integer('completed_at', { mode: 'timestamp' }),
@@ -113,6 +114,8 @@ export const experimentResults = sqliteTable('experiment_results', {
   output: text('output'),
   generatedOutput: text('generated_output'), // output produced by candidate
   latencyMs: integer('latency_ms'),
+  modelProvider: text('model_provider'), // which provider was used
+  modelName: text('model_name'), // which model was used
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 });
 

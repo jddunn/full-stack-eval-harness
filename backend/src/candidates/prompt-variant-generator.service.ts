@@ -44,6 +44,38 @@ export class PromptVariantGeneratorService {
     private llmService: LlmService,
   ) {}
 
+  /**
+   * Suggest a display name for a variant based on its label and system prompt.
+   */
+  async suggestVariantName(
+    parentId: string,
+    dto: { variantLabel: string; systemPrompt?: string },
+  ): Promise<{ name: string }> {
+    const parent = this.promptLoader.findOne(parentId);
+
+    const prompt = `You generate short, descriptive display names for prompt variants in an evaluation harness.
+
+Parent prompt: "${parent.name}"
+${parent.description ? `Parent description: ${parent.description}` : ''}
+Variant label: "${dto.variantLabel}"
+${dto.systemPrompt ? `Variant system prompt (first 300 chars): "${dto.systemPrompt.substring(0, 300)}"` : ''}
+
+Generate a concise display name (2-5 words) for this variant. The name should:
+- Clearly differentiate it from the parent
+- Reflect its style or strategy
+- Be human-readable (title case)
+
+Respond with ONLY the display name, no quotes or extra text.`;
+
+    const rawName = await this.llmService.complete(prompt, {
+      temperature: 0.3,
+      maxTokens: 30,
+    });
+
+    const name = rawName.replace(/^["']|["']$/g, '').trim();
+    return { name: name || `${parent.name} (${dto.variantLabel})` };
+  }
+
   async generate(
     parentId: string,
     dto: GeneratePromptVariantsDto,
@@ -70,12 +102,18 @@ export class PromptVariantGeneratorService {
     };
 
     const prompt = this.buildGenerationPrompt(parent, count, dto.customInstructions);
-    const rawResponse = await this.llmService.complete(prompt, {
-      provider: usedConfig.provider,
-      model: usedConfig.model,
-      temperature: usedConfig.temperature,
-      maxTokens: usedConfig.maxTokens,
-    });
+    let rawResponse: string;
+    try {
+      rawResponse = await this.llmService.complete(prompt, {
+        provider: usedConfig.provider,
+        model: usedConfig.model,
+        temperature: usedConfig.temperature,
+        maxTokens: usedConfig.maxTokens,
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'LLM call failed';
+      throw new BadRequestException(`Variant generation LLM call failed: ${msg}`);
+    }
 
     const drafts = this.parseDrafts(rawResponse, count);
     const existingIds = new Set(this.promptLoader.findAll().map((p) => p.id));

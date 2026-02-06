@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Delete,
   Body,
   Param,
   Res,
@@ -72,6 +73,14 @@ export class DatasetsController {
     },
   ) {
     return this.datasetsService.update(id, body);
+  }
+
+  /**
+   * Delete a dataset: removes its subfolder from disk.
+   */
+  @Delete(':id')
+  delete(@Param('id') id: string) {
+    return this.datasetsService.delete(id);
   }
 
   /**

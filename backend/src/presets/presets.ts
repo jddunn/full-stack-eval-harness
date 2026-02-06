@@ -12,12 +12,10 @@ export interface GraderPreset {
     | 'exact-match'
     | 'llm-judge'
     | 'semantic-similarity'
-    | 'faithfulness'
     | 'contains'
     | 'regex'
     | 'json-schema'
-    | 'answer-relevancy'
-    | 'context-relevancy';
+    | 'promptfoo';
   rubric?: string;
   config?: Record<string, unknown>;
   tooltip: string;
@@ -25,20 +23,13 @@ export interface GraderPreset {
 
 export const GRADER_PRESETS: GraderPreset[] = [
   {
-    id: 'faithfulness-strict',
-    name: 'Faithfulness (Strict)',
-    description: 'All claims must be supported by context (>90%)',
-    type: 'faithfulness',
-    config: { threshold: 0.9 },
-    tooltip: 'RAGAS-inspired: extracts atomic claims, verifies each against context',
-  },
-  {
-    id: 'faithfulness-moderate',
-    name: 'Faithfulness (Moderate)',
-    description: 'Most claims must be supported by context (>70%)',
-    type: 'faithfulness',
-    config: { threshold: 0.7 },
-    tooltip: 'Looser faithfulness — allows some inference',
+    id: 'faithfulness',
+    name: 'Faithfulness',
+    description: 'Checks that response claims are grounded in provided context (>80%)',
+    type: 'promptfoo',
+    config: { assertion: 'context-faithfulness', threshold: 0.8 },
+    tooltip:
+      'RAGAS-style: extracts atomic claims, verifies each against context (threshold adjustable)',
   },
   {
     id: 'llm-judge-helpful',
@@ -59,23 +50,15 @@ Fail if:
     tooltip: 'General-purpose quality check',
   },
   {
-    id: 'semantic-high',
-    name: 'Semantic Match (High)',
-    description: 'Output meaning must be very similar (>85%)',
+    id: 'semantic-similarity',
+    name: 'Semantic Similarity',
+    description: 'Output meaning must be very similar (>80%)',
     type: 'semantic-similarity',
-    config: { threshold: 0.85 },
-    tooltip: 'Cosine similarity on embeddings, strict threshold',
+    config: { threshold: 0.8 },
+    tooltip: 'Cosine similarity on embeddings (threshold adjustable)',
   },
   {
-    id: 'semantic-moderate',
-    name: 'Semantic Match (Moderate)',
-    description: 'Output meaning must be somewhat similar (>70%)',
-    type: 'semantic-similarity',
-    config: { threshold: 0.7 },
-    tooltip: 'Looser semantic match for creative rewrites',
-  },
-  {
-    id: 'json-extraction-schema',
+    id: 'extraction-schema',
     name: 'Paper Extraction Schema',
     description: 'Validates JSON output against the research paper schema',
     type: 'json-schema',
@@ -119,4 +102,3 @@ Fail if key data is missing, fabricated, or schema is wrong.`,
     tooltip: 'LLM judge for extraction quality and grounding',
   },
 ];
-

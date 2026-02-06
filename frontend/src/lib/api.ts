@@ -1,6 +1,5 @@
 import type {
   Dataset,
-  TestCase,
   Grader,
   GraderType,
   Candidate,
@@ -14,10 +13,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3021/api';
 /**
  * Generic fetch wrapper with error handling.
  */
-async function fetchApi<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<T> {
+async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
@@ -40,31 +36,30 @@ export const datasetsApi = {
 
   get: (id: string) => fetchApi<Dataset>(`/datasets/${id}`),
 
-  update: (id: string, data: {
-    name?: string;
-    description?: string;
-    testCases?: Array<{
-      input: string;
-      expectedOutput?: string;
-      context?: string;
-      metadata?: Record<string, unknown>;
-      customFields?: Record<string, string>;
-    }>;
-  }) =>
+  update: (
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      testCases?: Array<{
+        input: string;
+        expectedOutput?: string;
+        context?: string;
+        metadata?: Record<string, unknown>;
+        customFields?: Record<string, string>;
+      }>;
+    }
+  ) =>
     fetchApi<Dataset>(`/datasets/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
 
-  reload: () =>
-    fetchApi<{ loaded: number }>('/datasets/reload', { method: 'POST' }),
+  reload: () => fetchApi<{ loaded: number }>('/datasets/reload', { method: 'POST' }),
 
-  importCsv: (data: {
-    filename: string;
-    csv: string;
-    name?: string;
-    description?: string;
-  }) =>
+  delete: (id: string) => fetchApi<{ deleted: boolean }>(`/datasets/${id}`, { method: 'DELETE' }),
+
+  importCsv: (data: { filename: string; csv: string; name?: string; description?: string }) =>
     fetchApi<Dataset>('/datasets/import', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -99,11 +94,17 @@ export const gradersApi = {
       body: JSON.stringify(data),
     }),
 
-  delete: (id: string) =>
-    fetchApi<{ deleted: boolean }>(`/graders/${id}`, { method: 'DELETE' }),
+  delete: (id: string) => fetchApi<{ deleted: boolean }>(`/graders/${id}`, { method: 'DELETE' }),
 
-  reload: () =>
-    fetchApi<{ loaded: number }>('/graders/reload', { method: 'POST' }),
+  reload: () => fetchApi<{ loaded: number }>('/graders/reload', { method: 'POST' }),
+
+  getRawYaml: async (id: string): Promise<string> => {
+    const response = await fetch(`${API_BASE}/graders/${id}/yaml`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch YAML: ${response.status}`);
+    }
+    return response.text();
+  },
 };
 
 // Prompts API (loaded from markdown files on disk)
@@ -112,55 +113,76 @@ export const promptsApi = {
 
   get: (id: string) => fetchApi<Candidate>(`/prompts/${id}`),
 
-  update: (id: string, data: {
-    name?: string;
-    description?: string;
-    runnerType?: 'llm_prompt' | 'http_endpoint';
-    systemPrompt?: string;
-    userPromptTemplate?: string;
-    temperature?: number;
-    maxTokens?: number;
-    provider?: string;
-    model?: string;
-    endpointUrl?: string;
-    endpointMethod?: string;
-    endpointBodyTemplate?: string;
-    recommendedGraders?: string[];
-    graderWeights?: Record<string, number>;
-    recommendedDatasets?: string[];
-    graderRationale?: string;
-    notes?: string;
-  }) =>
+  update: (
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      runnerType?: 'llm_prompt' | 'http_endpoint';
+      systemPrompt?: string;
+      userPromptTemplate?: string;
+      temperature?: number;
+      maxTokens?: number;
+      provider?: string;
+      model?: string;
+      endpointUrl?: string;
+      endpointMethod?: string;
+      endpointBodyTemplate?: string;
+      recommendedGraders?: string[];
+      graderWeights?: Record<string, number>;
+      recommendedDatasets?: string[];
+      graderRationale?: string;
+      notes?: string;
+    }
+  ) =>
     fetchApi<Candidate>(`/prompts/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
 
-  test: (id: string, data: { input: string; context?: string; metadata?: Record<string, unknown> }) =>
+  test: (
+    id: string,
+    data: { input: string; context?: string; metadata?: Record<string, unknown> }
+  ) =>
     fetchApi<{ output: string; latencyMs: number; error?: string }>(`/prompts/${id}/test`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  createVariant: (parentId: string, data: {
-    variantLabel: string;
-    name?: string;
-    description?: string;
-    systemPrompt?: string;
-  }) =>
+  createVariant: (
+    parentId: string,
+    data: {
+      variantLabel: string;
+      name?: string;
+      description?: string;
+      systemPrompt?: string;
+    }
+  ) =>
     fetchApi<Candidate>(`/prompts/${parentId}/variant`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  generateVariants: (parentId: string, data: {
-    count?: number;
-    customInstructions?: string;
-    provider?: 'openai' | 'anthropic' | 'ollama';
-    model?: string;
-    temperature?: number;
-    maxTokens?: number;
-  }) =>
+  suggestVariantName: (
+    parentId: string,
+    data: { variantLabel: string; systemPrompt?: string }
+  ) =>
+    fetchApi<{ name: string }>(`/prompts/${parentId}/variant/suggest-name`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  generateVariants: (
+    parentId: string,
+    data: {
+      count?: number;
+      customInstructions?: string;
+      provider?: 'openai' | 'anthropic' | 'ollama';
+      model?: string;
+      temperature?: number;
+      maxTokens?: number;
+    }
+  ) =>
     fetchApi<{
       parentId: string;
       created: Candidate[];
@@ -176,11 +198,9 @@ export const promptsApi = {
       body: JSON.stringify(data),
     }),
 
-  delete: (id: string) =>
-    fetchApi<{ deleted: boolean }>(`/prompts/${id}`, { method: 'DELETE' }),
+  delete: (id: string) => fetchApi<{ deleted: boolean }>(`/prompts/${id}`, { method: 'DELETE' }),
 
-  reload: () =>
-    fetchApi<{ loaded: number }>('/prompts/reload', { method: 'POST' }),
+  reload: () => fetchApi<{ loaded: number }>('/prompts/reload', { method: 'POST' }),
 };
 
 // Experiment API
@@ -194,17 +214,23 @@ export const experimentsApi = {
     datasetId: string;
     graderIds: string[];
     candidateIds?: string[];
+    modelConfig?: { provider?: string; model?: string };
   }) =>
     fetchApi<Experiment>('/experiments', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
+  delete: (id: string) =>
+    fetchApi<{ deleted: boolean }>(`/experiments/${id}`, { method: 'DELETE' }),
+
+  clearAll: () => fetchApi<{ deleted: number }>('/experiments/clear-all', { method: 'DELETE' }),
+
   getStats: (id: string) => fetchApi<ExperimentStats>(`/experiments/${id}/stats`),
 
   compare: (id: string, baselineId: string, challengerId: string) =>
     fetchApi<CandidateComparison>(
-      `/experiments/${id}/compare?baseline=${baselineId}&challenger=${challengerId}`,
+      `/experiments/${id}/compare?baseline=${baselineId}&challenger=${challengerId}`
     ),
 
   // SSE stream for real-time progress
@@ -215,6 +241,7 @@ export const experimentsApi = {
   // Export URLs
   exportJsonUrl: (id: string) => `${API_BASE}/experiments/${id}/export/json`,
   exportCsvUrl: (id: string) => `${API_BASE}/experiments/${id}/export/csv`,
+  exportAllCsvUrl: () => `${API_BASE}/experiments/export/all-csv`,
 };
 
 // Preset types
@@ -248,7 +275,7 @@ export const presetsApi = {
   }) =>
     fetchApi<Array<{ input: string; expectedOutput: string; context?: string }>>(
       '/presets/synthetic/generate',
-      { method: 'POST', body: JSON.stringify(data) },
+      { method: 'POST', body: JSON.stringify(data) }
     ),
 
   generateSyntheticDataset: (data: {
@@ -258,6 +285,7 @@ export const presetsApi = {
     count: number;
     style: 'qa' | 'classification' | 'extraction' | 'rag';
     customInstructions?: string;
+    forCandidateId?: string;
   }) =>
     fetchApi<Dataset>('/presets/synthetic/dataset', {
       method: 'POST',
@@ -297,9 +325,7 @@ export const settingsApi = {
       body: JSON.stringify(data),
     }),
 
-  testConnection: () =>
-    fetchApi<ConnectionTestResult>('/settings/llm/test', { method: 'POST' }),
+  testConnection: () => fetchApi<ConnectionTestResult>('/settings/llm/test', { method: 'POST' }),
 
-  resetToDefaults: () =>
-    fetchApi<AppSettings>('/settings/reset', { method: 'POST' }),
+  resetToDefaults: () => fetchApi<AppSettings>('/settings/reset', { method: 'POST' }),
 };

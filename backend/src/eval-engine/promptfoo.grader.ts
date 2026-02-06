@@ -19,7 +19,7 @@ type PromptfooAssertion = {
  * - similar (semantic similarity via embeddings)
  * - llm-rubric (LLM-as-judge)
  * - factuality (OpenAI factuality)
- * - And 40+ more assertion types
+ * - And many more assertion types
  *
  * Supports multiple providers via Settings:
  * - OpenAI (gpt-4o, etc.)
@@ -34,7 +34,7 @@ export class PromptfooGrader extends BaseGrader {
 
   constructor(
     graderConfig: GraderConfig,
-    private llmService: LlmService,
+    private llmService: LlmService
   ) {
     super(graderConfig);
 
@@ -48,46 +48,55 @@ export class PromptfooGrader extends BaseGrader {
   }
 
   async evaluate(evalInput: EvalInput): Promise<GraderResult> {
-    const { input, output, expected, context } = evalInput;
+    const { input, output: rawOutput, expected, context } = evalInput;
+    const output = String(rawOutput || '');
 
     try {
-      const { evaluate } = await import('promptfoo');
+      const { assertions: pf } = await import('promptfoo');
 
-      // Build the promptfoo assertion based on type
-      const assertion = this.buildAssertion(expected, context);
-
-      // Get provider config from LlmService settings
+      // Get provider config for LLM-based assertions
       const providerConfig = await this.getProviderConfig();
+      const grading: any = {};
+      if (providerConfig.provider) {
+        grading.provider = providerConfig.provider;
+      }
+      // Set env vars so promptfoo can find API keys
+      if (providerConfig.env) {
+        for (const [k, v] of Object.entries(providerConfig.env)) {
+          process.env[k] = v;
+        }
+      }
 
-      // Run promptfoo evaluation
-      // We use an "echo" provider that just returns the output we already have
-      const result = await evaluate({
-        prompts: [output], // The output we're evaluating
-        providers: [
-          {
-            id: () => 'echo',
-            callApi: async () => ({ output }),
-          } as any, // Custom echo provider
-        ],
-        tests: [{
+      // Build the assertion object
+      const assertion = this.buildAssertion(expected);
+
+      // Use promptfoo's runAssertion directly — avoids the broken evaluate() + nunjucks path
+      const result = await pf.runAssertion({
+        prompt: input,
+        provider: { id: () => 'echo' } as any,
+        assertion: assertion as any,
+        test: {
           vars: {
             query: input,
             context: context || '',
             expected: expected || '',
           },
           assert: [assertion as any],
-        }],
-        // Pass provider env vars
-        env: providerConfig.env,
-        // Default provider for LLM-based assertions
-        defaultTest: {
-          options: {
-            provider: providerConfig.provider,
-          },
+          options: { provider: providerConfig.provider },
+        } as any,
+        vars: {
+          query: input,
+          context: context || '',
+          expected: expected || '',
+        },
+        latencyMs: 0,
+        providerResponse: {
+          output,
+          cost: 0,
         },
       });
 
-      return this.parsePromptfooResult(result);
+      return this.parseRunAssertionResult(result);
     } catch (error) {
       return {
         pass: false,
@@ -109,7 +118,7 @@ export class PromptfooGrader extends BaseGrader {
 
     switch (settings.provider) {
       case 'openai':
-        provider = settings.model ? `openai:${settings.model}` : 'openai:gpt-4o';
+        provider = settings.model ? `openai:${settings.model}` : 'openai:gpt-4.1';
         if (settings.apiKey) {
           env.OPENAI_API_KEY = settings.apiKey;
         } else if (process.env.OPENAI_API_KEY) {
@@ -118,7 +127,9 @@ export class PromptfooGrader extends BaseGrader {
         break;
 
       case 'anthropic':
-        provider = settings.model ? `anthropic:messages:${settings.model}` : 'anthropic:messages:claude-sonnet-4-5-20250929';
+        provider = settings.model
+          ? `anthropic:messages:${settings.model}`
+          : 'anthropic:messages:claude-sonnet-4-5-20250929';
         if (settings.apiKey) {
           env.ANTHROPIC_API_KEY = settings.apiKey;
         } else if (process.env.ANTHROPIC_API_KEY) {
@@ -126,15 +137,16 @@ export class PromptfooGrader extends BaseGrader {
         }
         break;
 
-      case 'ollama':
+      case 'ollama': {
         const baseUrl = settings.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
         provider = settings.model ? `ollama:${settings.model}` : 'ollama:llama3';
         env.OLLAMA_BASE_URL = baseUrl;
         break;
+      }
 
       default:
         // Fallback to OpenAI
-        provider = 'openai:gpt-4o';
+        provider = 'openai:gpt-4.1';
         if (process.env.OPENAI_API_KEY) {
           env.OPENAI_API_KEY = process.env.OPENAI_API_KEY;
         }
@@ -146,7 +158,7 @@ export class PromptfooGrader extends BaseGrader {
   /**
    * Build a promptfoo assertion based on the configured type.
    */
-  private buildAssertion(expected?: string, context?: string): PromptfooAssertion {
+  private buildAssertion(expected?: string): PromptfooAssertion {
     const baseAssertion: PromptfooAssertion = {
       type: this.assertion,
       threshold: this.threshold,
@@ -158,7 +170,8 @@ export class PromptfooGrader extends BaseGrader {
         // Use the grader's rubric for LLM-based evaluation
         return {
           ...baseAssertion,
-          value: this.rubric || 'Evaluate if the response is accurate, helpful, and well-structured.',
+          value:
+            this.rubric || 'Evaluate if the response is accurate, helpful, and well-structured.',
         };
 
       case 'similar':
@@ -194,38 +207,23 @@ export class PromptfooGrader extends BaseGrader {
   }
 
   /**
-   * Parse promptfoo's evaluation result into our GraderResult format.
+   * Parse promptfoo runAssertion result into our GraderResult format.
    */
-  private parsePromptfooResult(result: any): GraderResult {
-    // Get the first (and only) test result
-    const testResult = result.results?.[0];
-
-    if (!testResult) {
+  private parseRunAssertionResult(result: any): GraderResult {
+    if (!result) {
       return {
         pass: false,
         score: 0,
-        reason: 'No results from promptfoo evaluation',
+        reason: 'No result from promptfoo assertion',
       };
     }
 
-    // Get assertion results
-    const assertionResult = testResult.gradingResult;
-
-    if (!assertionResult) {
-      return {
-        pass: testResult.success,
-        score: testResult.success ? 1 : 0,
-        reason: testResult.error || 'Evaluation completed',
-      };
-    }
-
-    // Build reason from component results
     const reasons: string[] = [];
-    if (assertionResult.reason) {
-      reasons.push(assertionResult.reason);
+    if (result.reason) {
+      reasons.push(result.reason);
     }
-    if (assertionResult.componentResults) {
-      for (const component of assertionResult.componentResults) {
+    if (result.componentResults) {
+      for (const component of result.componentResults) {
         if (component.reason) {
           reasons.push(component.reason);
         }
@@ -233,9 +231,10 @@ export class PromptfooGrader extends BaseGrader {
     }
 
     return {
-      pass: assertionResult.pass,
-      score: assertionResult.score ?? (assertionResult.pass ? 1 : 0),
-      reason: reasons.join('. ') || `${this.assertion} evaluation: ${assertionResult.pass ? 'passed' : 'failed'}`,
+      pass: result.pass ?? false,
+      score: result.score ?? (result.pass ? 1 : 0),
+      reason:
+        reasons.join('. ') || `${this.assertion} evaluation: ${result.pass ? 'passed' : 'failed'}`,
     };
   }
 }

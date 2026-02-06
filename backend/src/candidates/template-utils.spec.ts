@@ -21,6 +21,7 @@ describe('renderTemplate', () => {
     const result = renderTemplate('{{metadata.field}}', {
       'metadata.field': 'nested', // flat key with dot
     } as any);
+    expect(result).toBe('{{metadata.field}}');
     // Since the implementation walks object paths, a flat key won't match
     // but a nested object will:
     const result2 = renderTemplate('{{metadata.field}}', {

@@ -4,7 +4,7 @@ import { LoadedPrompt } from './prompt-loader.service';
 
 describe('PromptVariantGeneratorService', () => {
   const parentPrompt: LoadedPrompt = {
-    id: 'analyst-full',
+    id: 'analyst',
     name: 'Analyst',
     description: 'Analyze input',
     runnerType: 'llm_prompt',
@@ -23,23 +23,36 @@ describe('PromptVariantGeneratorService', () => {
     graderRationale: null,
     notes: null,
     source: 'file',
+    filePath: '/tmp/test/prompts/analyst/base.md',
   };
 
   function createService() {
     const promptLoader = {
       findOne: jest.fn().mockReturnValue(parentPrompt),
       findAll: jest.fn().mockReturnValue([parentPrompt]),
-      createVariant: jest.fn((parentId: string, data: { variantLabel: string; name?: string; description?: string; systemPrompt?: string }) => ({
-        ...parentPrompt,
-        id: `${parentId}-${data.variantLabel}`,
-        parentId,
-        variantLabel: data.variantLabel,
-        name: data.name || `${parentPrompt.name} (${data.variantLabel})`,
-        description: data.description || null,
-        systemPrompt: data.systemPrompt || parentPrompt.systemPrompt,
-      })),
-      normalizeVariantLabel: jest.fn((label: string) => label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')),
-      buildVariantId: jest.fn((parentId: string, variantLabel: string) => `${parentId}-${variantLabel}`),
+      createVariant: jest.fn(
+        (
+          parentId: string,
+          data: { variantLabel: string; name?: string; description?: string; systemPrompt?: string }
+        ) => ({
+          ...parentPrompt,
+          id: `${parentId}-${data.variantLabel}`,
+          parentId,
+          variantLabel: data.variantLabel,
+          name: data.name || `${parentPrompt.name} (${data.variantLabel})`,
+          description: data.description || null,
+          systemPrompt: data.systemPrompt || parentPrompt.systemPrompt,
+        })
+      ),
+      normalizeVariantLabel: jest.fn((label: string) =>
+        label
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+      ),
+      buildVariantId: jest.fn(
+        (parentId: string, variantLabel: string) => `${parentId}-${variantLabel}`
+      ),
     };
 
     const llmService = {
@@ -63,14 +76,11 @@ describe('PromptVariantGeneratorService', () => {
             description: 'Explain steps',
             systemPrompt: 'Show reasoning clearly.',
           },
-        ]),
+        ])
       ),
     };
 
-    const service = new PromptVariantGeneratorService(
-      promptLoader as any,
-      llmService as any,
-    );
+    const service = new PromptVariantGeneratorService(promptLoader as any, llmService as any);
 
     return { service, promptLoader, llmService };
   }
@@ -78,7 +88,7 @@ describe('PromptVariantGeneratorService', () => {
   it('generates variants and uses provided overrides with settings defaults', async () => {
     const { service, llmService } = createService();
 
-    const result = await service.generate('analyst-full', {
+    const result = await service.generate('analyst', {
       count: 2,
       temperature: 0.4,
     });
@@ -93,9 +103,9 @@ describe('PromptVariantGeneratorService', () => {
 
   it('throws on invalid count', async () => {
     const { service } = createService();
-    await expect(
-      service.generate('analyst-full', { count: 0 }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.generate('analyst', { count: 0 })).rejects.toBeInstanceOf(
+      BadRequestException
+    );
   });
 
   it('rejects non-llm_prompt parents', async () => {
@@ -105,8 +115,8 @@ describe('PromptVariantGeneratorService', () => {
       runnerType: 'http_endpoint',
     });
 
-    await expect(
-      service.generate('analyst-full', { count: 1 }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.generate('analyst', { count: 1 })).rejects.toBeInstanceOf(
+      BadRequestException
+    );
   });
 });

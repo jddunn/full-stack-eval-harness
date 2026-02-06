@@ -1,9 +1,0 @@
-name: Semantic Match (Moderate)
-description: Output meaning must be somewhat similar (>70%)
-type: semantic-similarity
-config:
-  threshold: 0.7
-inspiration: |
-  Based on Sentence-BERT (Reimers & Gurevych, 2019). Looser threshold suitable
-  for creative rewrites or paraphrasing tasks.
-reference: https://arxiv.org/abs/1908.10084

@@ -12,6 +12,7 @@ dist/
 out/
 
 # Database
+*.sqlite
 *.sqlite3
 *.db
 
@@ -35,3 +36,4 @@ coverage/
 # Misc
 *.tgz
 .turbo/
+*.tsbuildinfo

@@ -2,7 +2,7 @@
  * RAG Retrieval Interfaces — Stubs for future retrieval-augmented generation support.
  *
  * CURRENT STATE: The eval harness evaluates RAG *outputs* (via the context field,
- * faithfulness grader, and context-relevancy grader) but does NOT perform retrieval itself.
+ * promptfoo-backed RAGAS-style graders like context-faithfulness/context-relevance) but does NOT perform retrieval itself.
  * Context is pre-loaded in test cases.
  *
  * FUTURE: These interfaces define the contract for dynamic retrieval during experiment
@@ -13,7 +13,7 @@
  *   1. RetrievalService.retrieve(testCase.input, candidate.retrievalConfig)
  *   2. Inject retrieved chunks as {{context}} in the prompt template
  *   3. Send augmented prompt to LlmService.complete()
- *   4. Grade output with faithfulness + context-relevancy graders
+ *   4. Grade output with promptfoo assertions like context-faithfulness + context-relevance
  */
 
 /**
@@ -110,7 +110,7 @@ export interface IRetrievalService {
    */
   ingest(
     documents: Array<{ id: string; content: string; metadata?: Record<string, unknown> }>,
-    config: RetrievalConfig,
+    config: RetrievalConfig
   ): Promise<{ indexed: number; errors: string[] }>;
 
   /**

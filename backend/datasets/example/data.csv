@@ -1,0 +1,6 @@
+input,expected_output,context,metadata
+"What is the capital city of Canada?","Ottawa","",""
+"Who wrote the play 'Romeo and Juliet'?","William Shakespeare","",""
+"What is the chemical symbol for gold?","Au","",""
+"How many continents are there on Earth?","Seven","",""
+"What is the boiling point of water at sea level in degrees Celsius?","100°C","",""

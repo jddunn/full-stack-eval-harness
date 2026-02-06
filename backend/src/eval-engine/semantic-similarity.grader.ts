@@ -36,15 +36,48 @@ interface SimilarityAnalysis {
  */
 export class SemanticSimilarityGrader extends BaseGrader {
   private readonly STOP_WORDS = new Set([
-    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
-    'has', 'he', 'in', 'is', 'it', 'its', 'of', 'on', 'or', 'that',
-    'the', 'to', 'was', 'were', 'will', 'with', 'this', 'they', 'but',
-    'have', 'had', 'what', 'when', 'where', 'which', 'who', 'would',
+    'a',
+    'an',
+    'and',
+    'are',
+    'as',
+    'at',
+    'be',
+    'by',
+    'for',
+    'from',
+    'has',
+    'he',
+    'in',
+    'is',
+    'it',
+    'its',
+    'of',
+    'on',
+    'or',
+    'that',
+    'the',
+    'to',
+    'was',
+    'were',
+    'will',
+    'with',
+    'this',
+    'they',
+    'but',
+    'have',
+    'had',
+    'what',
+    'when',
+    'where',
+    'which',
+    'who',
+    'would',
   ]);
 
   constructor(
     graderConfig: { name: string; description?: string; config?: Record<string, unknown> },
-    private llmService: LlmService,
+    private llmService: LlmService
   ) {
     super(graderConfig);
   }
@@ -78,18 +111,14 @@ export class SemanticSimilarityGrader extends BaseGrader {
     const hybridWeight = this.getConfigValue('hybridWeight', 0.7);
 
     try {
-      const analysis = await this.analyzeSemanticSimilarity(
-        output,
-        expected,
-        metric,
-        useHybrid,
-        hybridWeight,
-      );
+      const analysis = await this.analyzeSemanticSimilarity(output, expected, metric, useHybrid);
 
       // Determine final score based on analysis method
       let finalScore: number;
       if (analysis.method === 'hybrid' && analysis.embeddingSimilarity !== null) {
-        finalScore = hybridWeight * analysis.embeddingSimilarity + (1 - hybridWeight) * analysis.textSimilarity;
+        finalScore =
+          hybridWeight * analysis.embeddingSimilarity +
+          (1 - hybridWeight) * analysis.textSimilarity;
       } else if (analysis.embeddingSimilarity !== null) {
         finalScore = analysis.embeddingSimilarity;
       } else {
@@ -123,8 +152,7 @@ export class SemanticSimilarityGrader extends BaseGrader {
     output: string,
     expected: string,
     metric: SimilarityMetric,
-    useHybrid: boolean,
-    hybridWeight: number,
+    useHybrid: boolean
   ): Promise<SimilarityAnalysis> {
     // Always calculate text similarity as fallback
     const textSimilarity = this.calculateTextSimilarity(output, expected);
@@ -142,7 +170,7 @@ export class SemanticSimilarityGrader extends BaseGrader {
       embeddingSimilarity = this.calculateVectorSimilarity(
         outputEmbedding,
         expectedEmbedding,
-        metric,
+        metric
       );
 
       method = useHybrid ? 'hybrid' : 'embedding';
@@ -162,11 +190,7 @@ export class SemanticSimilarityGrader extends BaseGrader {
   /**
    * Calculate vector similarity using specified metric.
    */
-  private calculateVectorSimilarity(
-    a: number[],
-    b: number[],
-    metric: SimilarityMetric,
-  ): number {
+  private calculateVectorSimilarity(a: number[], b: number[], metric: SimilarityMetric): number {
     if (a.length !== b.length) {
       throw new Error(`Vector dimension mismatch: ${a.length} vs ${b.length}`);
     }
@@ -325,20 +349,18 @@ export class SemanticSimilarityGrader extends BaseGrader {
     analysis: SimilarityAnalysis,
     finalScore: number,
     threshold: number,
-    pass: boolean,
+    pass: boolean
   ): string {
     const scoreStr = `${(finalScore * 100).toFixed(1)}%`;
     const thresholdStr = `${(threshold * 100).toFixed(0)}%`;
     const status = pass ? 'meets' : 'below';
 
-    const parts: string[] = [
-      `Semantic similarity ${scoreStr} ${status} threshold ${thresholdStr}`,
-    ];
+    const parts: string[] = [`Semantic similarity ${scoreStr} ${status} threshold ${thresholdStr}`];
 
     // Add method info
     if (analysis.method === 'hybrid' && analysis.embeddingSimilarity !== null) {
       parts.push(
-        `(Hybrid: embedding ${(analysis.embeddingSimilarity * 100).toFixed(1)}%, text ${(analysis.textSimilarity * 100).toFixed(1)}%)`,
+        `(Hybrid: embedding ${(analysis.embeddingSimilarity * 100).toFixed(1)}%, text ${(analysis.textSimilarity * 100).toFixed(1)}%)`
       );
     } else if (analysis.method === 'embedding') {
       parts.push(`(Embedding ${analysis.metric})`);

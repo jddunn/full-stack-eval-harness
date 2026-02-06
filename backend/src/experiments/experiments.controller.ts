@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
   Query,
@@ -33,6 +34,20 @@ export class ExperimentsController {
     return this.experimentsService.create(dto);
   }
 
+  @Delete('clear-all')
+  async clearAll() {
+    const experiments = await this.experimentsService.findAll();
+    for (const exp of experiments) {
+      await this.experimentsService.remove(exp.id);
+    }
+    return { deleted: experiments.length };
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.experimentsService.remove(id);
+  }
+
   @Get(':id/stats')
   getStats(@Param('id') id: string) {
     return this.experimentsService.getStats(id);
@@ -46,7 +61,7 @@ export class ExperimentsController {
     return this.experimentsService.getProgressStream(id).pipe(
       map((progress) => ({
         data: progress,
-      })),
+      }))
     );
   }
 
@@ -60,6 +75,68 @@ export class ExperimentsController {
     @Query('challenger') challengerId: string
   ) {
     return this.experimentsService.compareCandidate(id, baselineId, challengerId);
+  }
+
+  /**
+   * Export ALL experiments as a single consolidated CSV.
+   */
+  @Get('export/all-csv')
+  @Header('Content-Type', 'text/csv')
+  async exportAllCsv(@Res() res: Response) {
+    const experiments = await this.experimentsService.findAll();
+
+    const headers = [
+      'experiment_id',
+      'experiment_name',
+      'dataset_id',
+      'status',
+      'model_provider',
+      'model_name',
+      'experiment_created_at',
+      'test_case_id',
+      'candidate_id',
+      'grader_id',
+      'pass',
+      'score',
+      'reason',
+      'generated_output',
+      'latency_ms',
+      'result_created_at',
+    ];
+
+    const allRows: string[][] = [];
+    for (const exp of experiments) {
+      try {
+        const full = await this.experimentsService.findOne(exp.id);
+        for (const r of full.results) {
+          allRows.push([
+            exp.id,
+            `"${(exp.name || '').replace(/"/g, '""')}"`,
+            exp.datasetId,
+            exp.status,
+            r.modelProvider || '',
+            r.modelName || '',
+            exp.createdAt?.toISOString() || '',
+            r.testCaseId,
+            r.candidateId || '',
+            r.graderId,
+            r.pass ? 'true' : 'false',
+            r.score?.toFixed(4) || '',
+            `"${(r.reason || '').replace(/"/g, '""')}"`,
+            `"${(r.generatedOutput || '').replace(/"/g, '""')}"`,
+            r.latencyMs?.toString() || '',
+            r.createdAt?.toISOString() || '',
+          ]);
+        }
+      } catch {
+        // Skip experiments that fail to load
+      }
+    }
+
+    const csv = [headers.join(','), ...allRows.map((row) => row.join(','))].join('\n');
+    const filename = `all-experiments-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
   }
 
   /**
@@ -84,11 +161,14 @@ export class ExperimentsController {
       stats,
       results: experiment.results.map((r) => ({
         testCaseId: r.testCaseId,
+        candidateId: r.candidateId || null,
         graderId: r.graderId,
         pass: r.pass,
         score: r.score,
         reason: r.reason,
         output: r.output,
+        generatedOutput: r.generatedOutput || null,
+        latencyMs: r.latencyMs || null,
         createdAt: r.createdAt,
       })),
     };
@@ -109,22 +189,32 @@ export class ExperimentsController {
     // CSV header
     const headers = [
       'test_case_id',
+      'candidate_id',
       'grader_id',
       'pass',
       'score',
       'reason',
       'output',
+      'generated_output',
+      'latency_ms',
+      'model_provider',
+      'model_name',
       'created_at',
     ];
 
     // CSV rows
     const rows = experiment.results.map((r) => [
       r.testCaseId,
+      r.candidateId || '',
       r.graderId,
       r.pass ? 'true' : 'false',
       r.score?.toFixed(4) || '',
       `"${(r.reason || '').replace(/"/g, '""')}"`,
       `"${(r.output || '').replace(/"/g, '""')}"`,
+      `"${(r.generatedOutput || '').replace(/"/g, '""')}"`,
+      r.latencyMs?.toString() || '',
+      r.modelProvider || '',
+      r.modelName || '',
       r.createdAt?.toISOString() || '',
     ]);
 

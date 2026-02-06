@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use, useCallback } from 'react';
+import { useState, useEffect, useCallback, use } from 'react';
 import {
   ArrowLeft,
   FileJson,
@@ -9,12 +9,12 @@ import {
   Plus,
   X,
   FileText,
-  Info,
   ChevronDown,
 } from 'lucide-react';
 import Link from 'next/link';
 import { datasetsApi, promptsApi } from '@/lib/api';
 import { useToast } from '@/components/Toast';
+import { Tooltip } from '@/components/Tooltip';
 import type { Dataset, TestCase, Candidate } from '@/lib/types';
 
 interface EditableCase {
@@ -36,37 +36,19 @@ function toEditable(tc: TestCase): EditableCase {
 }
 
 function extractCustomColumns(testCases: TestCase[]): string[] {
-  return Array.from(
-    new Set(testCases.flatMap((tc) => Object.keys(tc.customFields || {}))),
-  );
+  return Array.from(new Set(testCases.flatMap((tc) => Object.keys(tc.customFields || {}))));
 }
 
 function normalizeCases(cases: EditableCase[], customColumns: string[]): EditableCase[] {
   return cases.map((testCase) => ({
     ...testCase,
     customFields: Object.fromEntries(
-      customColumns.map((column) => [column, testCase.customFields[column] || '']),
+      customColumns.map((column) => [column, testCase.customFields[column] || ''])
     ),
   }));
 }
 
-function Tooltip({ text }: { text: string }) {
-  return (
-    <div className="group relative inline-block ml-1">
-      <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-foreground text-background text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 w-64 text-left">
-        {text}
-        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-foreground" />
-      </div>
-    </div>
-  );
-}
-
-export default function DatasetDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function DatasetDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { toast } = useToast();
   const [dataset, setDataset] = useState<Dataset | null>(null);
@@ -78,20 +60,12 @@ export default function DatasetDetailPage({
   const [linkedPrompts, setLinkedPrompts] = useState<Candidate[]>([]);
   const [showMeta, setShowMeta] = useState(false);
 
-  useEffect(() => {
-    loadDataset();
-    loadLinkedPrompts();
-  }, [id]);
-
-  async function loadDataset() {
+  const loadDataset = useCallback(async () => {
     try {
       const data = await datasetsApi.get(id);
       setDataset(data);
       const detectedCustomColumns = extractCustomColumns(data.testCases || []);
-      const cases = normalizeCases(
-        (data.testCases || []).map(toEditable),
-        detectedCustomColumns,
-      );
+      const cases = normalizeCases((data.testCases || []).map(toEditable), detectedCustomColumns);
       setCustomColumns(detectedCustomColumns);
       setEditedCases(cases);
       setOriginalCases(cases);
@@ -100,16 +74,21 @@ export default function DatasetDetailPage({
     } finally {
       setLoading(false);
     }
-  }
+  }, [id]);
 
-  async function loadLinkedPrompts() {
+  const loadLinkedPrompts = useCallback(async () => {
     try {
       const all = await promptsApi.list();
       setLinkedPrompts(all.filter((p) => p.recommendedDatasets?.includes(id)));
     } catch {
       // non-critical
     }
-  }
+  }, [id]);
+
+  useEffect(() => {
+    loadDataset();
+    loadLinkedPrompts();
+  }, [loadDataset, loadLinkedPrompts]);
 
   const isDirty = useCallback(() => {
     return JSON.stringify(editedCases) !== JSON.stringify(originalCases);
@@ -163,7 +142,7 @@ export default function DatasetDetailPage({
       prev.map((testCase) => ({
         ...testCase,
         customFields: { ...testCase.customFields, [normalizedName]: '' },
-      })),
+      }))
     );
   }
 
@@ -174,7 +153,7 @@ export default function DatasetDetailPage({
         const next = { ...testCase.customFields };
         delete next[column];
         return { ...testCase, customFields: next };
-      }),
+      })
     );
   }
 
@@ -217,7 +196,7 @@ export default function DatasetDetailPage({
       const detectedCustomColumns = extractCustomColumns(updated.testCases || []);
       const cases = normalizeCases(
         (updated.testCases || []).map(toEditable),
-        detectedCustomColumns,
+        detectedCustomColumns
       );
       setCustomColumns(detectedCustomColumns);
       setEditedCases(cases);
@@ -261,9 +240,7 @@ export default function DatasetDetailPage({
           </Link>
           <div>
             <h1 className="text-2xl font-semibold">{dataset.name}</h1>
-            {dataset.description && (
-              <p className="text-muted-foreground">{dataset.description}</p>
-            )}
+            {dataset.description && <p className="text-muted-foreground">{dataset.description}</p>}
           </div>
         </div>
         <div className="flex gap-2">
@@ -299,7 +276,7 @@ export default function DatasetDetailPage({
 
       {/* File info */}
       <div className="flex items-center gap-4 text-sm text-muted-foreground">
-        <span>{editedCases.length} test cases</span>
+        <span>{editedCases.length} records (test cases)</span>
         {dataset.filePath && (
           <span className="flex items-center gap-1">
             <FileText className="h-3.5 w-3.5" />
@@ -313,12 +290,12 @@ export default function DatasetDetailPage({
           >
             <FileJson className="h-3.5 w-3.5" />
             <code className="text-xs">{dataset.metaPath}</code>
-            <ChevronDown className={`h-3 w-3 transition-transform ${showMeta ? 'rotate-180' : ''}`} />
+            <ChevronDown
+              className={`h-3 w-3 transition-transform ${showMeta ? 'rotate-180' : ''}`}
+            />
           </button>
         )}
-        {dirty && (
-          <span className="text-amber-500 font-medium">Unsaved changes</span>
-        )}
+        {dirty && <span className="text-amber-500 font-medium">Unsaved changes</span>}
       </div>
 
       {/* Dataset metadata JSON */}
@@ -328,13 +305,17 @@ export default function DatasetDetailPage({
             Dataset Configuration
           </h4>
           <pre className="text-xs font-mono bg-muted/50 p-3 rounded overflow-x-auto">
-{JSON.stringify({
-  name: dataset.name,
-  description: dataset.description || null,
-  filePath: dataset.filePath,
-  metaPath: dataset.metaPath,
-  testCaseCount: dataset.testCaseCount || editedCases.length,
-}, null, 2)}
+            {JSON.stringify(
+              {
+                name: dataset.name,
+                description: dataset.description || null,
+                filePath: dataset.filePath,
+                metaPath: dataset.metaPath,
+                testCaseCount: dataset.testCaseCount || editedCases.length,
+              },
+              null,
+              2
+            )}
           </pre>
         </div>
       )}
@@ -355,7 +336,7 @@ export default function DatasetDetailPage({
         </div>
       )}
 
-      {/* Editable test cases table */}
+      {/* Editable records (test cases) table */}
       <div className="card overflow-hidden">
         <table className="table">
           <thead>
@@ -407,9 +388,7 @@ export default function DatasetDetailPage({
           <tbody>
             {editedCases.map((ec, idx) => (
               <tr key={idx} className="group">
-                <td className="text-muted-foreground text-xs align-top pt-3">
-                  {idx + 1}
-                </td>
+                <td className="text-muted-foreground text-xs align-top pt-3">{idx + 1}</td>
                 <td className="p-1">
                   <textarea
                     value={ec.input}
@@ -421,9 +400,7 @@ export default function DatasetDetailPage({
                 <td className="p-1">
                   <textarea
                     value={ec.expectedOutput}
-                    onChange={(e) =>
-                      updateCase(idx, 'expectedOutput', e.target.value)
-                    }
+                    onChange={(e) => updateCase(idx, 'expectedOutput', e.target.value)}
                     className="input min-h-[60px] resize-y text-sm font-mono w-full"
                     placeholder="Expected output..."
                   />

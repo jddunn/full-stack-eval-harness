@@ -5,19 +5,19 @@ import { Settings, Zap, RefreshCw, Check, X, Loader2 } from 'lucide-react';
 import { settingsApi, LlmSettings, ConnectionTestResult } from '@/lib/api';
 
 const PROVIDERS = [
-  { id: 'openai', name: 'OpenAI', description: 'GPT-4.1, GPT-4o, o3 reasoning models' },
-  { id: 'anthropic', name: 'Anthropic', description: 'Claude Opus, Sonnet, Haiku models' },
+  { id: 'openai', name: 'OpenAI', description: 'Chat completions + embeddings API' },
+  { id: 'anthropic', name: 'Anthropic', description: 'Messages API (Claude models)' },
   { id: 'ollama', name: 'Ollama (Local)', description: 'Run models locally with Ollama' },
 ] as const;
 
 const DEFAULT_MODELS: Record<string, string[]> = {
-  openai: ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'gpt-4o-mini', 'o3', 'o4-mini', 'o3-mini', 'o1'],
-  anthropic: ['claude-opus-4-6', 'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-haiku-20240307'],
-  ollama: ['dolphin-llama3:8b', 'llama3.2:3b', 'llama3:8b', 'mistral', 'codellama', 'gemma:7b', 'phi3'],
+  // Keep this list intentionally small: model IDs change frequently. Use the free-text field below for custom names.
+  openai: ['gpt-4.1'],
+  anthropic: ['claude-sonnet-4-5-20250929'],
+  ollama: ['dolphin-llama3:8b'],
 };
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<LlmSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -36,7 +36,6 @@ export default function SettingsPage() {
     try {
       setLoading(true);
       const data = await settingsApi.getLlmSettings();
-      setSettings(data);
       setFormData(data);
       setError(null);
     } catch (err) {
@@ -56,7 +55,6 @@ export default function SettingsPage() {
     try {
       setSaving(true);
       const updated = await settingsApi.updateLlmSettings(formData);
-      setSettings(updated);
       setFormData(updated);
       setHasChanges(false);
       setError(null);
@@ -93,7 +91,6 @@ export default function SettingsPage() {
     try {
       setSaving(true);
       const data = await settingsApi.resetToDefaults();
-      setSettings(data.llm);
       setFormData(data.llm);
       setHasChanges(false);
       setTestResult(null);
@@ -186,9 +183,7 @@ export default function SettingsPage() {
                 </option>
               ))}
             </select>
-            <p className="text-xs text-muted-foreground mt-1">
-              Or enter a custom model name below
-            </p>
+            <p className="text-xs text-muted-foreground mt-1">Or enter a custom model name below</p>
             <input
               type="text"
               className="input mt-2"
@@ -228,9 +223,7 @@ export default function SettingsPage() {
                 value={formData.baseUrl || ''}
                 onChange={(e) => updateFormData({ baseUrl: e.target.value })}
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                Default: http://localhost:11434
-              </p>
+              <p className="text-xs text-muted-foreground mt-1">Default: http://localhost:11434</p>
             </div>
           )}
 
@@ -278,11 +271,7 @@ export default function SettingsPage() {
         <h2 className="text-lg font-bold uppercase tracking-wide mb-4">Connection Test</h2>
 
         <div className="flex items-center gap-4">
-          <button
-            onClick={testConnection}
-            disabled={testing}
-            className="btn-secondary"
-          >
+          <button onClick={testConnection} disabled={testing} className="btn-secondary">
             {testing ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -302,16 +291,10 @@ export default function SettingsPage() {
                 testResult.success ? 'text-[hsl(var(--success))]' : 'text-[hsl(var(--error))]'
               }`}
             >
-              {testResult.success ? (
-                <Check className="h-5 w-5" />
-              ) : (
-                <X className="h-5 w-5" />
-              )}
+              {testResult.success ? <Check className="h-5 w-5" /> : <X className="h-5 w-5" />}
               <span className="text-sm">{testResult.message}</span>
               {testResult.latencyMs && (
-                <span className="text-xs text-muted-foreground">
-                  ({testResult.latencyMs}ms)
-                </span>
+                <span className="text-xs text-muted-foreground">({testResult.latencyMs}ms)</span>
               )}
             </div>
           )}
@@ -320,24 +303,14 @@ export default function SettingsPage() {
 
       {/* Actions */}
       <div className="flex items-center justify-between">
-        <button
-          onClick={resetToDefaults}
-          disabled={saving}
-          className="btn-ghost"
-        >
+        <button onClick={resetToDefaults} disabled={saving} className="btn-ghost">
           <RefreshCw className="h-4 w-4 mr-2" />
           Reset to Defaults
         </button>
 
         <div className="flex items-center gap-4">
-          {hasChanges && (
-            <span className="text-sm text-muted-foreground">Unsaved changes</span>
-          )}
-          <button
-            onClick={saveSettings}
-            disabled={saving || !hasChanges}
-            className="btn-primary"
-          >
+          {hasChanges && <span className="text-sm text-muted-foreground">Unsaved changes</span>}
+          <button onClick={saveSettings} disabled={saving || !hasChanges} className="btn-primary">
             {saving ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />

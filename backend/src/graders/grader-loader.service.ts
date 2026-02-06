@@ -7,12 +7,9 @@ export type GraderType =
   | 'exact-match'
   | 'llm-judge'
   | 'semantic-similarity'
-  | 'faithfulness'
   | 'contains'
   | 'regex'
   | 'json-schema'
-  | 'answer-relevancy'
-  | 'context-relevancy'
   | 'promptfoo';
 
 export interface LoadedGrader {
@@ -68,14 +65,20 @@ export class GraderLoaderService implements OnModuleInit {
       return { loaded: 0 };
     }
 
-    const files = fs.readdirSync(this.gradersDir).filter(
-      (f) => f.endsWith('.yaml') || f.endsWith('.yml'),
-    );
+    const files = fs
+      .readdirSync(this.gradersDir)
+      .filter((f) => f.endsWith('.yaml') || f.endsWith('.yml'));
 
     for (const file of files) {
       try {
         const content = fs.readFileSync(path.join(this.gradersDir, file), 'utf-8');
         const grader = this.parseYaml(file, content);
+        if (this.graders.has(grader.id)) {
+          const existing = this.graders.get(grader.id);
+          this.logger.warn(
+            `Duplicate grader id "${grader.id}" loaded from ${file} (already loaded from ${path.basename(existing?.filePath || '')})`
+          );
+        }
         this.graders.set(grader.id, grader);
       } catch (err) {
         this.logger.error(`Failed to parse ${file}: ${err}`);
@@ -115,7 +118,7 @@ export class GraderLoaderService implements OnModuleInit {
       config?: Record<string, unknown>;
       inspiration?: string;
       reference?: string;
-    },
+    }
   ): LoadedGrader {
     const existing = this.findOne(id);
 
@@ -130,11 +133,12 @@ export class GraderLoaderService implements OnModuleInit {
     };
 
     const yamlContent = yaml.dump(updated, { lineWidth: -1, quotingType: '"' });
-    const filePath = path.join(this.gradersDir, `${id}.yaml`);
+    const filename = path.basename(existing.filePath || `${id}.yaml`);
+    const filePath = path.join(this.gradersDir, filename);
     fs.writeFileSync(filePath, yamlContent, 'utf-8');
 
     // Re-parse and store
-    const reloaded = this.parseYaml(`${id}.yaml`, yamlContent);
+    const reloaded = this.parseYaml(filename, yamlContent);
     this.graders.set(id, reloaded);
 
     this.logger.log(`Updated grader ${id} on disk`);
@@ -152,7 +156,7 @@ export class GraderLoaderService implements OnModuleInit {
       type: GraderType;
       rubric?: string;
       config?: Record<string, unknown>;
-    },
+    }
   ): LoadedGrader {
     const filePath = path.join(this.gradersDir, `${id}.yaml`);
     if (fs.existsSync(filePath)) {
@@ -187,12 +191,38 @@ export class GraderLoaderService implements OnModuleInit {
    */
   deleteGrader(id: string): void {
     this.findOne(id); // throws if not found
-    const filePath = path.join(this.gradersDir, `${id}.yaml`);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    const yamlPath = path.join(this.gradersDir, `${id}.yaml`);
+    const ymlPath = path.join(this.gradersDir, `${id}.yml`);
+    if (fs.existsSync(yamlPath)) {
+      fs.unlinkSync(yamlPath);
+    }
+    if (fs.existsSync(ymlPath)) {
+      fs.unlinkSync(ymlPath);
     }
     this.graders.delete(id);
     this.logger.log(`Deleted grader ${id}`);
+  }
+
+  /**
+   * Return the raw YAML content of a grader file from disk.
+   */
+  getRawYaml(id: string): string {
+    const existing = this.findOne(id); // throws if not found
+
+    // Prefer the on-disk file that was actually loaded (avoids .yaml/.yml ambiguity).
+    const loadedFilename = path.basename(existing.filePath || `${id}.yaml`);
+    const loadedPath = path.join(this.gradersDir, loadedFilename);
+    if (fs.existsSync(loadedPath)) {
+      return fs.readFileSync(loadedPath, 'utf-8');
+    }
+
+    const yamlPath = path.join(this.gradersDir, `${id}.yaml`);
+    if (fs.existsSync(yamlPath)) return fs.readFileSync(yamlPath, 'utf-8');
+
+    const ymlPath = path.join(this.gradersDir, `${id}.yml`);
+    if (fs.existsSync(ymlPath)) return fs.readFileSync(ymlPath, 'utf-8');
+
+    throw new NotFoundException(`YAML file for grader "${id}" not found`);
   }
 
   private parseYaml(filename: string, content: string): LoadedGrader {
@@ -208,8 +238,19 @@ export class GraderLoaderService implements OnModuleInit {
     if (!data.type) {
       throw new Error(`Missing "type" in ${filename}`);
     }
+    const supportedTypes: GraderType[] = [
+      'exact-match',
+      'llm-judge',
+      'semantic-similarity',
+      'contains',
+      'regex',
+      'json-schema',
+      'promptfoo',
+    ];
+    if (!supportedTypes.includes(data.type as GraderType)) {
+      throw new Error(`Unknown grader type "${data.type}" in ${filename}`);
+    }
 
-    const now = new Date().toISOString();
     const filePath = path.join(this.gradersDir, filename);
     const stat = fs.statSync(filePath);
 

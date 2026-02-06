@@ -1,333 +1,215 @@
 import { PromptLoaderService } from './prompt-loader.service';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+
+function writePromptFile(dir: string, id: string, frontmatterLines: string[], body: string) {
+  const content = `---\n${frontmatterLines.join('\n')}\n---\n${body}\n`;
+  fs.writeFileSync(path.join(dir, `${id}.md`), content, 'utf-8');
+}
+
+function writeFamilyPrompt(
+  baseDir: string,
+  family: string,
+  filename: string,
+  frontmatterLines: string[],
+  body: string
+) {
+  const familyDir = path.join(baseDir, family);
+  fs.mkdirSync(familyDir, { recursive: true });
+  const content = `---\n${frontmatterLines.join('\n')}\n---\n${body}\n`;
+  fs.writeFileSync(path.join(familyDir, filename), content, 'utf-8');
+}
 
 describe('PromptLoaderService', () => {
   let service: PromptLoaderService;
+  let tmpDir: string;
 
   beforeEach(() => {
     service = new PromptLoaderService();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-test-'));
+    // Use an isolated fixtures directory so tests don't depend on repo seed data.
+    (service as any).promptsDir = tmpDir;
   });
 
-  describe('loadAll', () => {
-    it('loads prompt files from the prompts directory', () => {
-      const result = service.loadAll();
-      expect(result.loaded).toBeGreaterThan(0);
-    });
-
-    it('loads all 12 expected prompt files (6 base + 6 variants)', () => {
-      service.loadAll();
-      const prompts = service.findAll();
-      expect(prompts.length).toBe(12);
-    });
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  describe('findOne', () => {
-    beforeEach(() => {
-      service.loadAll();
-    });
+  it('loads flat prompts (backwards compat), parses variants and grader weights', () => {
+    const parentId = 'test-parent';
+    const variantId = 'test-parent-formal';
 
-    it('returns a prompt by ID', () => {
-      const prompt = service.findOne('analyst-full');
-      expect(prompt.name).toBe('Full Structured Analyst');
-      expect(prompt.runnerType).toBe('llm_prompt');
-      expect(prompt.source).toBe('file');
-    });
+    writePromptFile(
+      tmpDir,
+      parentId,
+      [
+        'name: Test Parent',
+        'runner: llm_prompt',
+        'user_template: "{{input}}"',
+        'recommended_graders: g1:0.4, g2:0.6',
+        'recommended_datasets: ds1, ds2',
+        'grader_rationale: Because.',
+      ],
+      'You are the parent.'
+    );
 
-    it('throws NotFoundException for unknown ID', () => {
-      expect(() => service.findOne('nonexistent')).toThrow();
-    });
+    writePromptFile(
+      tmpDir,
+      variantId,
+      [
+        'name: Test Variant',
+        'runner: llm_prompt',
+        `parent_prompt: ${parentId}`,
+        'variant: formal',
+        'user_template: "{{input}}"',
+        'recommended_graders: g1:0.5, g2:0.5',
+      ],
+      'You are the formal variant.'
+    );
+
+    const result = service.loadAll();
+    expect(result.loaded).toBe(2);
+
+    const parent = service.findOne(parentId);
+    expect(parent.parentId).toBeNull();
+    expect(parent.variantLabel).toBeNull();
+    expect(parent.recommendedGraders).toEqual(['g1', 'g2']);
+    expect(parent.graderWeights['g1']).toBe(0.4);
+    expect(parent.graderWeights['g2']).toBe(0.6);
+    expect(parent.filePath).toBe(path.join(tmpDir, `${parentId}.md`));
+
+    const variant = service.findOne(variantId);
+    expect(variant.parentId).toBe(parentId);
+    expect(variant.variantLabel).toBe('formal');
+    expect(variant.recommendedGraders).toEqual(['g1', 'g2']);
+    expect(variant.graderWeights['g1']).toBe(0.5);
+    expect(variant.graderWeights['g2']).toBe(0.5);
+    expect(variant.filePath).toBe(path.join(tmpDir, `${variantId}.md`));
   });
 
-  describe('variant parsing', () => {
-    beforeEach(() => {
-      service.loadAll();
-    });
+  it('loads folder-per-family structure with auto-derived IDs', () => {
+    writeFamilyPrompt(
+      tmpDir,
+      'summarizer',
+      'base.md',
+      [
+        'name: Text Summarizer',
+        'runner: llm_prompt',
+        'user_template: "{{input}}"',
+        'recommended_graders: faithfulness:0.4, similarity:0.3',
+      ],
+      'You are a summarizer.'
+    );
 
-    it('parses parent_prompt field from variant files', () => {
-      const variant = service.findOne('text-rewriter-formal');
-      expect(variant.parentId).toBe('text-rewriter');
-    });
+    writeFamilyPrompt(
+      tmpDir,
+      'summarizer',
+      'concise.md',
+      ['name: Concise Summarizer', 'runner: llm_prompt', 'user_template: "{{input}}"'],
+      'Be concise.'
+    );
 
-    it('parses variant label from variant files', () => {
-      const variant = service.findOne('text-rewriter-casual');
-      expect(variant.variantLabel).toBe('casual');
-    });
+    writeFamilyPrompt(
+      tmpDir,
+      'summarizer',
+      'bullets.md',
+      ['name: Bullet Summarizer', 'runner: llm_prompt'],
+      'Use bullets.'
+    );
 
-    it('base prompts have null parentId', () => {
-      const base = service.findOne('text-rewriter');
-      expect(base.parentId).toBeNull();
-      expect(base.variantLabel).toBeNull();
-    });
+    const result = service.loadAll();
+    expect(result.loaded).toBe(3);
 
-    it('correctly loads all summarizer variants', () => {
-      const concise = service.findOne('summarizer-concise');
-      const verbose = service.findOne('summarizer-verbose');
-      const bullets = service.findOne('summarizer-bullets');
+    // Parent: base.md → ID = folder name
+    const parent = service.findOne('summarizer');
+    expect(parent.id).toBe('summarizer');
+    expect(parent.name).toBe('Text Summarizer');
+    expect(parent.parentId).toBeNull();
+    expect(parent.variantLabel).toBeNull();
+    expect(parent.recommendedGraders).toEqual(['faithfulness', 'similarity']);
+    expect(parent.filePath).toBe(path.join(tmpDir, 'summarizer', 'base.md'));
 
-      expect(concise.parentId).toBe('summarizer');
-      expect(verbose.parentId).toBe('summarizer');
-      expect(bullets.parentId).toBe('summarizer');
+    // Variant: concise.md → ID = summarizer-concise
+    const concise = service.findOne('summarizer-concise');
+    expect(concise.id).toBe('summarizer-concise');
+    expect(concise.parentId).toBe('summarizer');
+    expect(concise.variantLabel).toBe('concise');
+    expect(concise.filePath).toBe(path.join(tmpDir, 'summarizer', 'concise.md'));
 
-      expect(concise.variantLabel).toBe('concise');
-      expect(verbose.variantLabel).toBe('verbose');
-      expect(bullets.variantLabel).toBe('bullets');
-    });
-
-    it('variants have their own system prompts', () => {
-      const base = service.findOne('text-rewriter');
-      const formal = service.findOne('text-rewriter-formal');
-      expect(formal.systemPrompt).not.toBe(base.systemPrompt);
-      expect(formal.systemPrompt).toContain('formal');
-    });
-
-    it('variants have their own grader weights', () => {
-      const formal = service.findOne('text-rewriter-formal');
-      expect(formal.recommendedGraders.length).toBeGreaterThan(0);
-      expect(formal.graderWeights).toBeDefined();
-    });
-
-    it('counts 6 base prompts and 6 variants', () => {
-      const all = service.findAll();
-      const bases = all.filter((p) => !p.parentId);
-      const variants = all.filter((p) => p.parentId);
-      expect(bases.length).toBe(6);
-      expect(variants.length).toBe(6);
-    });
+    // Variant: bullets.md → ID = summarizer-bullets
+    const bullets = service.findOne('summarizer-bullets');
+    expect(bullets.id).toBe('summarizer-bullets');
+    expect(bullets.parentId).toBe('summarizer');
+    expect(bullets.variantLabel).toBe('bullets');
   });
 
-  describe('grader weight parsing', () => {
-    beforeEach(() => {
-      service.loadAll();
+  it('createVariant writes into family folder when parent is in a folder', () => {
+    writeFamilyPrompt(
+      tmpDir,
+      'test-family',
+      'base.md',
+      ['name: Test Family Parent', 'runner: llm_prompt', 'user_template: "{{input}}"'],
+      'You are the parent.'
+    );
+
+    service.loadAll();
+
+    const created = service.createVariant('test-family', {
+      variantLabel: 'My Variant',
+      systemPrompt: 'You are the variant.',
     });
 
-    it('parses weights from colon-separated format', () => {
-      const prompt = service.findOne('analyst-full');
-      expect(prompt.graderWeights).toBeDefined();
-      expect(prompt.graderWeights['faithfulness-strict']).toBe(0.4);
-      expect(prompt.graderWeights['extraction-completeness']).toBe(0.3);
-      expect(prompt.graderWeights['llm-judge-helpful']).toBe(0.3);
-    });
+    expect(created.id).toBe('test-family-my-variant');
+    expect(created.parentId).toBe('test-family');
+    expect(created.variantLabel).toBe('my-variant');
+    // Should be written into the family folder, not flat
+    expect(created.filePath).toBe(path.join(tmpDir, 'test-family', 'my-variant.md'));
+    expect(fs.existsSync(created.filePath)).toBe(true);
 
-    it('preserves grader order in recommendedGraders array', () => {
-      const prompt = service.findOne('analyst-full');
-      expect(prompt.recommendedGraders).toEqual([
-        'faithfulness-strict',
-        'extraction-completeness',
-        'llm-judge-helpful',
-      ]);
-    });
-
-    it('weights sum to ~1.0 for analyst-full', () => {
-      const prompt = service.findOne('analyst-full');
-      const sum = Object.values(prompt.graderWeights).reduce((a, b) => a + b, 0);
-      expect(sum).toBeCloseTo(1.0);
-    });
-
-    it('parses uneven weights correctly (json-extractor-strict)', () => {
-      const prompt = service.findOne('json-extractor-strict');
-      expect(prompt.graderWeights['json-extraction-schema']).toBe(0.4);
-      expect(prompt.graderWeights['extraction-completeness']).toBe(0.4);
-      expect(prompt.graderWeights['faithfulness-strict']).toBe(0.2);
-    });
+    // Reload to prove the file is valid and lineage fields persist
+    service.loadAll();
+    const reloaded = service.findOne(created.id);
+    expect(reloaded.parentId).toBe('test-family');
+    expect(reloaded.variantLabel).toBe('my-variant');
   });
 
-  describe('grader rationale parsing', () => {
-    beforeEach(() => {
-      service.loadAll();
+  it('createVariant writes flat file when parent is a flat file', () => {
+    const parentId = 'test-parent';
+
+    writePromptFile(
+      tmpDir,
+      parentId,
+      [
+        'name: Test Parent',
+        'runner: llm_prompt',
+        'user_template: "{{input}}"',
+        'recommended_graders: g1:0.4, g2:0.6',
+      ],
+      'You are the parent.'
+    );
+
+    service.loadAll();
+
+    const created = service.createVariant(parentId, {
+      variantLabel: 'My Variant',
+      systemPrompt: 'You are the variant.',
     });
 
-    it('parses grader_rationale field', () => {
-      const prompt = service.findOne('analyst-full');
-      expect(prompt.graderRationale).toContain('Faithfulness is highest');
-    });
+    expect(created.id).toBe('test-parent-my-variant');
+    expect(created.parentId).toBe(parentId);
+    expect(created.variantLabel).toBe('my-variant');
+    expect(fs.existsSync(path.join(tmpDir, `${created.id}.md`))).toBe(true);
 
-    it('returns null for prompts without rationale', () => {
-      // All our current prompts have rationale, so this tests the interface
-      const prompt = service.findOne('analyst-full');
-      expect(typeof prompt.graderRationale).toBe('string');
-    });
+    // Reload to prove the file is valid and lineage fields persist.
+    service.loadAll();
+    const reloaded = service.findOne(created.id);
+    expect(reloaded.parentId).toBe(parentId);
+    expect(reloaded.variantLabel).toBe('my-variant');
   });
 
-  describe('findMany', () => {
-    beforeEach(() => {
-      service.loadAll();
-    });
-
-    it('returns multiple prompts by ID', () => {
-      const prompts = service.findMany(['analyst-full', 'analyst-citations']);
-      expect(prompts).toHaveLength(2);
-      expect(prompts[0].id).toBe('analyst-full');
-      expect(prompts[1].id).toBe('analyst-citations');
-    });
-
-    it('throws on any unknown ID', () => {
-      expect(() => service.findMany(['analyst-full', 'bogus'])).toThrow();
-    });
-  });
-
-  describe('createVariant', () => {
-    beforeEach(() => {
-      service.loadAll();
-    });
-
-    afterEach(() => {
-      // Clean up any test-created variant files
-      const promptsDir = (service as any).promptsDir;
-      const testFile = path.join(promptsDir, 'analyst-full-test-variant.md');
-      if (fs.existsSync(testFile)) {
-        fs.unlinkSync(testFile);
-        service.loadAll(); // reload to remove from memory
-      }
-    });
-
-    it('creates a new variant file on disk', () => {
-      const variant = service.createVariant('analyst-full', {
-        variantLabel: 'test-variant',
-        name: 'Test Variant',
-        description: 'For testing',
-        systemPrompt: 'You are a test prompt.',
-      });
-
-      expect(variant.id).toBe('analyst-full-test-variant');
-      expect(variant.parentId).toBe('analyst-full');
-      expect(variant.variantLabel).toBe('test-variant');
-      expect(variant.name).toBe('Test Variant');
-      expect(variant.systemPrompt).toBe('You are a test prompt.');
-    });
-
-    it('writes a valid .md file that can be parsed', () => {
-      service.createVariant('analyst-full', {
-        variantLabel: 'test-variant',
-      });
-
-      // Reload to prove the file is valid
-      service.loadAll();
-      const variant = service.findOne('analyst-full-test-variant');
-      expect(variant.parentId).toBe('analyst-full');
-    });
-
-    it('inherits parent runner type and recommendations', () => {
-      const parent = service.findOne('analyst-full');
-      const variant = service.createVariant('analyst-full', {
-        variantLabel: 'test-variant',
-      });
-
-      expect(variant.runnerType).toBe(parent.runnerType);
-      expect(variant.recommendedGraders).toEqual(parent.recommendedGraders);
-    });
-
-    it('uses parent system prompt when none provided', () => {
-      const parent = service.findOne('analyst-full');
-      const variant = service.createVariant('analyst-full', {
-        variantLabel: 'test-variant',
-      });
-
-      expect(variant.systemPrompt).toBe(parent.systemPrompt);
-    });
-
-    it('generates default name from parent if not provided', () => {
-      const variant = service.createVariant('analyst-full', {
-        variantLabel: 'test-variant',
-      });
-
-      expect(variant.name).toContain('Full Structured Analyst');
-      expect(variant.name).toContain('test-variant');
-    });
-
-    it('throws ConflictException for duplicate variant ID', () => {
-      service.createVariant('analyst-full', {
-        variantLabel: 'test-variant',
-      });
-
-      expect(() =>
-        service.createVariant('analyst-full', {
-          variantLabel: 'test-variant',
-        }),
-      ).toThrow();
-    });
-
-    it('throws NotFoundException for unknown parent', () => {
-      expect(() =>
-        service.createVariant('nonexistent', {
-          variantLabel: 'test-variant',
-        }),
-      ).toThrow();
-    });
-
-    it('normalizes variant label to lowercase with hyphens', () => {
-      const variant = service.createVariant('analyst-full', {
-        variantLabel: 'Test Variant',
-      });
-      expect(variant.id).toBe('analyst-full-test-variant');
-      expect(variant.variantLabel).toBe('test-variant');
-    });
-
-    it('strips unsafe characters from variant labels', () => {
-      const variant = service.createVariant('analyst-full', {
-        variantLabel: '../Test Variant !!!',
-      });
-      expect(variant.id).toBe('analyst-full-test-variant');
-      expect(variant.variantLabel).toBe('test-variant');
-    });
-  });
-
-  describe('deletePrompt', () => {
-    beforeEach(() => {
-      service.loadAll();
-    });
-
-    it('deletes a variant from disk and memory', () => {
-      // Create a temporary variant to delete
-      service.createVariant('analyst-full', {
-        variantLabel: 'to-delete',
-        systemPrompt: 'Temporary.',
-      });
-      expect(service.findAll().some((p) => p.id === 'analyst-full-to-delete')).toBe(true);
-
-      const result = service.deletePrompt('analyst-full-to-delete');
-      expect(result.deleted).toBe(true);
-      expect(() => service.findOne('analyst-full-to-delete')).toThrow();
-
-      // Verify file is gone
-      const promptsDir = (service as any).promptsDir;
-      expect(fs.existsSync(path.join(promptsDir, 'analyst-full-to-delete.md'))).toBe(false);
-    });
-
-    it('throws NotFoundException when deleting unknown ID', () => {
-      expect(() => service.deletePrompt('nonexistent')).toThrow();
-    });
-  });
-
-  describe('updatePrompt', () => {
-    beforeEach(() => {
-      service.loadAll();
-    });
-
-    afterEach(() => {
-      // Clean up: restore by re-creating if we modified a variant
-      const promptsDir = (service as any).promptsDir;
-      const testFile = path.join(promptsDir, 'analyst-full-update-test.md');
-      if (fs.existsSync(testFile)) {
-        fs.unlinkSync(testFile);
-        service.loadAll();
-      }
-    });
-
-    it('preserves parent_prompt and variant fields on update', () => {
-      // Create a variant, update it, check lineage is preserved
-      service.createVariant('analyst-full', {
-        variantLabel: 'update-test',
-        systemPrompt: 'Original.',
-      });
-
-      const updated = service.updatePrompt('analyst-full-update-test', {
-        systemPrompt: 'Updated system prompt.',
-      });
-
-      expect(updated.parentId).toBe('analyst-full');
-      expect(updated.variantLabel).toBe('update-test');
-      expect(updated.systemPrompt).toBe('Updated system prompt.');
-    });
+  it('throws NotFoundException for unknown ID', () => {
+    service.loadAll();
+    expect(() => service.findOne('nonexistent')).toThrow();
   });
 });

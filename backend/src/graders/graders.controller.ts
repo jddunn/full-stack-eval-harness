@@ -6,7 +6,9 @@ import {
   Delete,
   Body,
   Param,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { GradersService, CreateGraderDto, UpdateGraderDto } from './graders.service';
 
 @Controller('graders')
@@ -16,6 +18,13 @@ export class GradersController {
   @Get()
   findAll() {
     return this.gradersService.findAll();
+  }
+
+  @Get(':id/yaml')
+  getRawYaml(@Param('id') id: string, @Res() res: Response) {
+    const yamlContent = this.gradersService.getRawYaml(id);
+    res.setHeader('Content-Type', 'text/yaml; charset=utf-8');
+    res.send(yamlContent);
   }
 
   @Get(':id')

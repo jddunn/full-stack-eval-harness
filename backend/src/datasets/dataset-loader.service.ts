@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, NotFoundException } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 
 export interface LoadedDataset {
   id: string;
@@ -11,6 +12,7 @@ export interface LoadedDataset {
   metaPath: string | null;
   testCaseCount: number;
   testCases: LoadedTestCase[];
+  synthetic?: boolean;
 }
 
 export interface LoadedTestCase {
@@ -43,7 +45,7 @@ export class DatasetLoaderService implements OnModuleInit {
   }
 
   /**
-   * Read all .csv files from the datasets directory and parse them.
+   * Scan subdirectories of datasetsDir for data.csv + meta.yaml and parse them.
    */
   loadAll(): { loaded: number } {
     this.datasets.clear();
@@ -53,31 +55,37 @@ export class DatasetLoaderService implements OnModuleInit {
       return { loaded: 0 };
     }
 
-    const files = fs.readdirSync(this.datasetsDir).filter((f) => f.endsWith('.csv'));
+    const entries = fs.readdirSync(this.datasetsDir, { withFileTypes: true });
+    const dirs = entries.filter((e) => e.isDirectory());
 
-    for (const file of files) {
+    for (const dir of dirs) {
+      const id = dir.name;
+      const csvPath = path.join(this.datasetsDir, id, 'data.csv');
+
+      if (!fs.existsSync(csvPath)) continue;
+
       try {
-        const id = file.replace(/\.csv$/, '');
-        const csvContent = fs.readFileSync(path.join(this.datasetsDir, file), 'utf-8');
+        const csvContent = fs.readFileSync(csvPath, 'utf-8');
         const meta = this.loadMeta(id);
         const testCases = this.parseCsv(id, csvContent);
 
-        const hasMetaFile = fs.existsSync(path.join(this.datasetsDir, `${id}.meta.json`));
+        const hasMetaFile = fs.existsSync(path.join(this.datasetsDir, id, 'meta.yaml'));
 
         const dataset: LoadedDataset = {
           id,
           name: meta.name || this.idToName(id),
           description: meta.description || null,
           source: 'file',
-          filePath: `datasets/${id}.csv`,
-          metaPath: hasMetaFile ? `datasets/${id}.meta.json` : null,
+          filePath: `datasets/${id}/data.csv`,
+          metaPath: hasMetaFile ? `datasets/${id}/meta.yaml` : null,
           testCaseCount: testCases.length,
           testCases,
+          ...(meta.synthetic ? { synthetic: true } : {}),
         };
 
         this.datasets.set(id, dataset);
       } catch (err) {
-        this.logger.error(`Failed to parse ${file}: ${err}`);
+        this.logger.error(`Failed to parse dataset ${id}: ${err}`);
       }
     }
 
@@ -102,44 +110,52 @@ export class DatasetLoaderService implements OnModuleInit {
   }
 
   /**
-   * Import a CSV file: write to disk, then reload into memory.
+   * Import a CSV file: write to subfolder on disk, then reload into memory.
    */
   importCsv(
     filename: string,
     csvContent: string,
-    meta?: { name?: string; description?: string },
+    meta?: { name?: string; description?: string; synthetic?: boolean }
   ): LoadedDataset {
     const id = filename.replace(/\.csv$/, '');
-    const csvPath = path.join(this.datasetsDir, `${id}.csv`);
+    const subDir = path.join(this.datasetsDir, id);
 
-    // Ensure directory exists
-    if (!fs.existsSync(this.datasetsDir)) {
-      fs.mkdirSync(this.datasetsDir, { recursive: true });
+    // Ensure subfolder exists
+    if (!fs.existsSync(subDir)) {
+      fs.mkdirSync(subDir, { recursive: true });
     }
 
     // Write CSV file
-    fs.writeFileSync(csvPath, csvContent, 'utf-8');
+    fs.writeFileSync(path.join(subDir, 'data.csv'), csvContent, 'utf-8');
 
-    // Write meta.json if provided
-    if (meta && (meta.name || meta.description)) {
-      const metaPath = path.join(this.datasetsDir, `${id}.meta.json`);
-      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2) + '\n', 'utf-8');
+    // Write meta.yaml if provided
+    if (meta && (meta.name || meta.description || meta.synthetic)) {
+      const metaObj: Record<string, unknown> = {};
+      if (meta.name) metaObj.name = meta.name;
+      if (meta.description) metaObj.description = meta.description;
+      if (meta.synthetic) metaObj.synthetic = true;
+      fs.writeFileSync(
+        path.join(subDir, 'meta.yaml'),
+        yaml.dump(metaObj, { lineWidth: 100 }),
+        'utf-8'
+      );
     }
 
     // Parse and store
     const testCases = this.parseCsv(id, csvContent);
     const loadedMeta = this.loadMeta(id);
 
-    const hasMeta = meta && (meta.name || meta.description);
+    const hasMeta = meta && (meta.name || meta.description || meta.synthetic);
     const dataset: LoadedDataset = {
       id,
       name: loadedMeta.name || this.idToName(id),
       description: loadedMeta.description || null,
       source: 'file',
-      filePath: `datasets/${id}.csv`,
-      metaPath: hasMeta ? `datasets/${id}.meta.json` : null,
+      filePath: `datasets/${id}/data.csv`,
+      metaPath: hasMeta ? `datasets/${id}/meta.yaml` : null,
       testCaseCount: testCases.length,
       testCases,
+      ...(loadedMeta.synthetic ? { synthetic: true } : {}),
     };
 
     this.datasets.set(id, dataset);
@@ -162,20 +178,20 @@ export class DatasetLoaderService implements OnModuleInit {
         metadata?: Record<string, unknown>;
         customFields?: Record<string, string>;
       }>;
-    },
+    }
   ): LoadedDataset {
     const existing = this.datasets.get(id);
     if (!existing) {
       throw new NotFoundException(`Dataset "${id}" not found`);
     }
 
+    const subDir = path.join(this.datasetsDir, id);
+
     // Rewrite CSV if testCases provided
     if (data.testCases) {
       const esc = (val: string) => '"' + (val || '').replace(/"/g, '""') + '"';
       const customHeaders = Array.from(
-        new Set(
-          data.testCases.flatMap((tc) => Object.keys(tc.customFields || {})),
-        ),
+        new Set(data.testCases.flatMap((tc) => Object.keys(tc.customFields || {})))
       );
       const headers = ['input', 'expected_output', 'context', 'metadata', ...customHeaders];
       const lines = [headers.join(',')];
@@ -189,39 +205,42 @@ export class DatasetLoaderService implements OnModuleInit {
             esc(tc.context || ''),
             esc(metaStr),
             ...customValues.map((v) => esc(v)),
-          ].join(','),
+          ].join(',')
         );
       }
-      const csvPath = path.join(this.datasetsDir, `${id}.csv`);
-      fs.writeFileSync(csvPath, lines.join('\n') + '\n', 'utf-8');
+      fs.writeFileSync(path.join(subDir, 'data.csv'), lines.join('\n') + '\n', 'utf-8');
     }
 
-    // Update meta.json if name or description changed
+    // Update meta.yaml if name or description changed
     if (data.name !== undefined || data.description !== undefined) {
       const currentMeta = this.loadMeta(id);
-      const newMeta = {
+      const newMeta: Record<string, unknown> = {
         name: data.name ?? currentMeta.name,
         description: data.description ?? currentMeta.description,
       };
-      const metaPath = path.join(this.datasetsDir, `${id}.meta.json`);
-      fs.writeFileSync(metaPath, JSON.stringify(newMeta, null, 2) + '\n', 'utf-8');
+      fs.writeFileSync(
+        path.join(subDir, 'meta.yaml'),
+        yaml.dump(newMeta, { lineWidth: 100 }),
+        'utf-8'
+      );
     }
 
     // Re-read from disk to get clean state
-    const csvContent = fs.readFileSync(path.join(this.datasetsDir, `${id}.csv`), 'utf-8');
+    const csvContent = fs.readFileSync(path.join(subDir, 'data.csv'), 'utf-8');
     const meta = this.loadMeta(id);
     const testCases = this.parseCsv(id, csvContent);
-    const hasMetaFile = fs.existsSync(path.join(this.datasetsDir, `${id}.meta.json`));
+    const hasMetaFile = fs.existsSync(path.join(subDir, 'meta.yaml'));
 
     const dataset: LoadedDataset = {
       id,
       name: meta.name || this.idToName(id),
       description: meta.description || null,
       source: 'file',
-      filePath: `datasets/${id}.csv`,
-      metaPath: hasMetaFile ? `datasets/${id}.meta.json` : null,
+      filePath: `datasets/${id}/data.csv`,
+      metaPath: hasMetaFile ? `datasets/${id}/meta.yaml` : null,
       testCaseCount: testCases.length,
       testCases,
+      ...(meta.synthetic ? { synthetic: true } : {}),
     };
 
     this.datasets.set(id, dataset);
@@ -230,15 +249,34 @@ export class DatasetLoaderService implements OnModuleInit {
   }
 
   /**
-   * Load optional .meta.json sidecar for a dataset.
+   * Delete a dataset: remove its subfolder from disk and from memory.
    */
-  private loadMeta(id: string): { name?: string; description?: string } {
-    const metaPath = path.join(this.datasetsDir, `${id}.meta.json`);
+  deleteDataset(id: string): { deleted: boolean } {
+    const existing = this.datasets.get(id);
+    if (!existing) {
+      throw new NotFoundException(`Dataset "${id}" not found`);
+    }
+
+    const subDir = path.join(this.datasetsDir, id);
+    if (fs.existsSync(subDir)) {
+      fs.rmSync(subDir, { recursive: true, force: true });
+    }
+
+    this.datasets.delete(id);
+    this.logger.log(`Deleted dataset "${id}"`);
+    return { deleted: true };
+  }
+
+  /**
+   * Load optional meta.yaml sidecar for a dataset.
+   */
+  private loadMeta(id: string): { name?: string; description?: string; synthetic?: boolean } {
+    const metaPath = path.join(this.datasetsDir, id, 'meta.yaml');
     if (fs.existsSync(metaPath)) {
       try {
-        return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+        return (yaml.load(fs.readFileSync(metaPath, 'utf-8')) as any) || {};
       } catch {
-        this.logger.warn(`Failed to parse ${id}.meta.json`);
+        this.logger.warn(`Failed to parse ${id}/meta.yaml`);
       }
     }
     return {};
@@ -276,7 +314,7 @@ export class DatasetLoaderService implements OnModuleInit {
           normalized !== 'input' &&
           normalized !== 'expected_output' &&
           normalized !== 'context' &&
-          normalized !== 'metadata',
+          normalized !== 'metadata'
       );
 
     if (inputIdx === -1) {
@@ -359,7 +397,10 @@ export class DatasetLoaderService implements OnModuleInit {
           currentRow.push(currentField);
           currentField = '';
           i++;
-        } else if (ch === '\n' || (ch === '\r' && i + 1 < content.length && content[i + 1] === '\n')) {
+        } else if (
+          ch === '\n' ||
+          (ch === '\r' && i + 1 < content.length && content[i + 1] === '\n')
+        ) {
           currentRow.push(currentField);
           currentField = '';
           if (currentRow.some((f) => f.trim())) {

@@ -1,4 +1,10 @@
-import { Injectable, Logger, OnModuleInit, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -22,6 +28,8 @@ export interface LoadedPrompt {
   graderRationale: string | null;
   notes: string | null;
   source: 'file';
+  /** Absolute path to the .md file on disk */
+  filePath: string;
 }
 
 @Injectable()
@@ -45,6 +53,12 @@ export class PromptLoaderService implements OnModuleInit {
 
   /**
    * Read all .md files from the prompts directory and parse them.
+   * Supports both folder-per-family structure and flat files (backwards compat).
+   *
+   * Folder convention:
+   *   prompts/{family}/base.md     → parent prompt, ID = folder name
+   *   prompts/{family}/{name}.md   → variant, ID = {family}-{name}
+   *   prompts/{name}.md            → flat file (backwards compat), ID = filename
    */
   loadAll(): { loaded: number } {
     this.prompts.clear();
@@ -54,15 +68,42 @@ export class PromptLoaderService implements OnModuleInit {
       return { loaded: 0 };
     }
 
-    const files = fs.readdirSync(this.promptsDir).filter((f) => f.endsWith('.md'));
+    const entries = fs.readdirSync(this.promptsDir, { withFileTypes: true });
 
-    for (const file of files) {
-      try {
-        const content = fs.readFileSync(path.join(this.promptsDir, file), 'utf-8');
-        const prompt = this.parseMarkdown(file, content);
-        this.prompts.set(prompt.id, prompt);
-      } catch (err) {
-        this.logger.error(`Failed to parse ${file}: ${err}`);
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        // Family folder — scan for .md files inside
+        const familyId = entry.name;
+        const familyDir = path.join(this.promptsDir, familyId);
+        const mdFiles = fs.readdirSync(familyDir).filter((f) => f.endsWith('.md'));
+
+        for (const file of mdFiles) {
+          try {
+            const filePath = path.join(familyDir, file);
+            const content = fs.readFileSync(filePath, 'utf-8');
+            const isBase = file === 'base.md';
+            const prompt = this.parseMarkdown(
+              file,
+              content,
+              filePath,
+              familyId, // folderParentId
+              isBase ? undefined : file.replace(/\.md$/, '') // folderVariantLabel
+            );
+            this.prompts.set(prompt.id, prompt);
+          } catch (err) {
+            this.logger.error(`Failed to parse ${familyId}/${file}: ${err}`);
+          }
+        }
+      } else if (entry.name.endsWith('.md')) {
+        // Flat file (backwards compat)
+        try {
+          const filePath = path.join(this.promptsDir, entry.name);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          const prompt = this.parseMarkdown(entry.name, content, filePath);
+          this.prompts.set(prompt.id, prompt);
+        } catch (err) {
+          this.logger.error(`Failed to parse ${entry.name}: ${err}`);
+        }
       }
     }
 
@@ -126,7 +167,7 @@ export class PromptLoaderService implements OnModuleInit {
       recommendedDatasets?: string[];
       graderRationale?: string;
       notes?: string;
-    },
+    }
   ): LoadedPrompt {
     const existing = this.findOne(id);
 
@@ -138,7 +179,8 @@ export class PromptLoaderService implements OnModuleInit {
     const systemPrompt = data.systemPrompt ?? existing.systemPrompt ?? '';
 
     // Model config
-    const temperature = data.temperature ?? (existing.modelConfig?.temperature as number | undefined);
+    const temperature =
+      data.temperature ?? (existing.modelConfig?.temperature as number | undefined);
     const maxTokens = data.maxTokens ?? (existing.modelConfig?.maxTokens as number | undefined);
     const provider = data.provider ?? (existing.modelConfig?.provider as string | undefined);
     const model = data.model ?? (existing.modelConfig?.model as string | undefined);
@@ -188,12 +230,16 @@ export class PromptLoaderService implements OnModuleInit {
     // Assemble file content
     const content = `---\n${lines.join('\n')}\n---\n${systemPrompt}\n`;
 
-    // Write to disk
-    const filePath = path.join(this.promptsDir, `${id}.md`);
+    // Write to disk using stored file path
+    const filePath = existing.filePath;
     fs.writeFileSync(filePath, content, 'utf-8');
 
-    // Re-parse and store in memory
-    const updated = this.parseMarkdown(`${id}.md`, content);
+    // Re-parse and store in memory (preserve filePath context)
+    const updated = this.parseMarkdown(`${id}.md`, content, filePath);
+    // Restore folder-derived fields if they were set
+    if (existing.parentId && !updated.parentId) updated.parentId = existing.parentId;
+    if (existing.variantLabel && !updated.variantLabel)
+      updated.variantLabel = existing.variantLabel;
     this.prompts.set(id, updated);
 
     this.logger.log(`Updated prompt ${id} on disk`);
@@ -211,7 +257,7 @@ export class PromptLoaderService implements OnModuleInit {
       name?: string;
       description?: string;
       systemPrompt?: string;
-    },
+    }
   ): LoadedPrompt {
     const parent = this.findOne(parentId);
     const label = this.normalizeVariantLabel(data.variantLabel);
@@ -235,8 +281,10 @@ export class PromptLoaderService implements OnModuleInit {
     if (parent.userPromptTemplate) lines.push(`user_template: "${parent.userPromptTemplate}"`);
 
     // Copy model config
-    if (parent.modelConfig?.temperature !== undefined) lines.push(`temperature: ${parent.modelConfig.temperature}`);
-    if (parent.modelConfig?.maxTokens !== undefined) lines.push(`max_tokens: ${parent.modelConfig.maxTokens}`);
+    if (parent.modelConfig?.temperature !== undefined)
+      lines.push(`temperature: ${parent.modelConfig.temperature}`);
+    if (parent.modelConfig?.maxTokens !== undefined)
+      lines.push(`max_tokens: ${parent.modelConfig.maxTokens}`);
     if (parent.modelConfig?.provider) lines.push(`provider: ${parent.modelConfig.provider}`);
     if (parent.modelConfig?.model) lines.push(`model: ${parent.modelConfig.model}`);
 
@@ -254,10 +302,18 @@ export class PromptLoaderService implements OnModuleInit {
     if (parent.graderRationale) lines.push(`grader_rationale: ${parent.graderRationale}`);
 
     const content = `---\n${lines.join('\n')}\n---\n${systemPrompt}\n`;
-    const filePath = path.join(this.promptsDir, `${newId}.md`);
+
+    // Write variant into parent's family folder if it exists, otherwise flat
+    const parentDir = path.dirname(parent.filePath);
+    const isInFamily = parentDir !== this.promptsDir;
+    const filePath = isInFamily
+      ? path.join(parentDir, `${label}.md`)
+      : path.join(this.promptsDir, `${newId}.md`);
     fs.writeFileSync(filePath, content, 'utf-8');
 
-    const created = this.parseMarkdown(`${newId}.md`, content);
+    const created = this.parseMarkdown(`${newId}.md`, content, filePath);
+    created.parentId = parentId;
+    created.variantLabel = label;
     this.prompts.set(newId, created);
 
     this.logger.log(`Created variant "${newId}" of "${parentId}"`);
@@ -268,9 +324,8 @@ export class PromptLoaderService implements OnModuleInit {
    * Delete a prompt's .md file from disk and remove from memory.
    */
   deletePrompt(id: string): { deleted: boolean } {
-    this.findOne(id); // throws if not found
-    const filePath = path.join(this.promptsDir, `${id}.md`);
-    fs.unlinkSync(filePath);
+    const prompt = this.findOne(id); // throws if not found
+    fs.unlinkSync(prompt.filePath);
     this.prompts.delete(id);
     this.logger.log(`Deleted prompt "${id}"`);
     return { deleted: true };
@@ -285,9 +340,32 @@ export class PromptLoaderService implements OnModuleInit {
    * key: value
    * ---
    * Body text (system prompt)
+   *
+   * @param filename - The .md filename (e.g. "base.md" or "concise.md")
+   * @param content - Raw file content
+   * @param resolvedFilePath - Absolute path to the file on disk
+   * @param folderParentId - If in a family folder, the folder name (used as parent ID for base.md, or as parent reference for variants)
+   * @param folderVariantLabel - If in a family folder and not base.md, the variant label derived from filename
    */
-  private parseMarkdown(filename: string, content: string): LoadedPrompt {
-    const id = filename.replace(/\.md$/, '');
+  private parseMarkdown(
+    filename: string,
+    content: string,
+    resolvedFilePath: string,
+    folderParentId?: string,
+    folderVariantLabel?: string
+  ): LoadedPrompt {
+    // Derive ID from folder context or filename
+    let id: string;
+    if (folderParentId && !folderVariantLabel) {
+      // base.md in a family folder → ID = folder name
+      id = folderParentId;
+    } else if (folderParentId && folderVariantLabel) {
+      // variant file in a family folder → ID = folder-filename
+      id = `${folderParentId}-${folderVariantLabel}`;
+    } else {
+      // Flat file (backwards compat) → ID = filename without .md
+      id = filename.replace(/\.md$/, '');
+    }
 
     // Split frontmatter from body
     const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
@@ -323,14 +401,24 @@ export class PromptLoaderService implements OnModuleInit {
 
     // Parse comma-separated recommendation lists
     const parseList = (val: string | undefined): string[] =>
-      val ? val.split(',').map((s) => s.trim()).filter(Boolean) : [];
+      val
+        ? val
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
 
     // Parse weighted grader list: "grader-id:0.4, grader-id2:0.3" → ids + weights
-    const parseWeightedList = (val: string | undefined): { ids: string[]; weights: Record<string, number> } => {
+    const parseWeightedList = (
+      val: string | undefined
+    ): { ids: string[]; weights: Record<string, number> } => {
       if (!val) return { ids: [], weights: {} };
       const ids: string[] = [];
       const weights: Record<string, number> = {};
-      for (const item of val.split(',').map((s) => s.trim()).filter(Boolean)) {
+      for (const item of val
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)) {
         const colonIdx = item.lastIndexOf(':');
         if (colonIdx > 0) {
           const maybeWeight = parseFloat(item.slice(colonIdx + 1));
@@ -361,14 +449,16 @@ export class PromptLoaderService implements OnModuleInit {
       endpointMethod: fm.endpoint_method || null,
       endpointHeaders: null,
       endpointBodyTemplate: fm.endpoint_body_template || null,
-      parentId: fm.parent_prompt || null,
-      variantLabel: fm.variant || null,
+      // Folder-derived parent/variant take precedence, frontmatter overrides
+      parentId: fm.parent_prompt || (folderVariantLabel ? folderParentId! : null),
+      variantLabel: fm.variant || folderVariantLabel || null,
       recommendedGraders: graderResult.ids,
       graderWeights: graderResult.weights,
       recommendedDatasets: parseList(fm.recommended_datasets),
       graderRationale: fm.grader_rationale || null,
       notes: fm.notes || null,
       source: 'file',
+      filePath: resolvedFilePath,
     };
   }
 }

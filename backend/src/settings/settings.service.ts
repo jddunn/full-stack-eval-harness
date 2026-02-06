@@ -23,21 +23,37 @@ function getEnvApiKey(provider: string): string | undefined {
   return undefined;
 }
 
-function getDefaultSettings(): AppSettings {
-  const provider = (process.env.LLM_PROVIDER as LlmSettings['provider']) || 'ollama';
+function getDefaultProvider(): LlmSettings['provider'] {
+  return (process.env.LLM_PROVIDER as LlmSettings['provider']) || 'openai';
+}
+
+function getDefaultModel(provider: LlmSettings['provider']): string {
+  return (
+    process.env.LLM_MODEL ||
+    (provider === 'ollama' ? (process.env.OLLAMA_MODEL as string | undefined) : undefined) ||
+    (provider === 'anthropic'
+      ? 'claude-sonnet-4-5-20250929'
+      : provider === 'ollama'
+        ? 'dolphin-llama3:8b'
+        : 'gpt-4.1')
+  );
+}
+
+function getDefaultLlmSettings(providerOverride?: LlmSettings['provider']): LlmSettings {
+  const provider = providerOverride || getDefaultProvider();
   return {
-    llm: {
-      provider,
-      model: process.env.LLM_MODEL || (process.env.OLLAMA_MODEL as string) || 'dolphin-llama3:8b',
-      apiKey: getEnvApiKey(provider),
-      baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
-      temperature: process.env.LLM_TEMPERATURE ? parseFloat(process.env.LLM_TEMPERATURE) : 0.7,
-      maxTokens: process.env.LLM_MAX_TOKENS ? parseInt(process.env.LLM_MAX_TOKENS, 10) : 1024,
-    },
+    provider,
+    model: getDefaultModel(provider),
+    apiKey: getEnvApiKey(provider),
+    baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+    temperature: process.env.LLM_TEMPERATURE ? parseFloat(process.env.LLM_TEMPERATURE) : 0.7,
+    maxTokens: process.env.LLM_MAX_TOKENS ? parseInt(process.env.LLM_MAX_TOKENS, 10) : 1024,
   };
 }
 
-const DEFAULT_SETTINGS = getDefaultSettings();
+function getDefaultSettings(providerOverride?: LlmSettings['provider']): AppSettings {
+  return { llm: getDefaultLlmSettings(providerOverride) };
+}
 
 const SETTINGS_KEYS = {
   LLM_PROVIDER: 'llm.provider',
@@ -52,7 +68,7 @@ const SETTINGS_KEYS = {
 export class SettingsService {
   constructor(
     @Inject(DB_ADAPTER)
-    private db: IDbAdapter,
+    private db: IDbAdapter
   ) {}
 
   /**
@@ -62,22 +78,23 @@ export class SettingsService {
     const dbSettings = await this.db.findAllSettings();
     const settingsMap = new Map(dbSettings.map((s) => [s.key, s.value]));
 
+    const provider =
+      (settingsMap.get(SETTINGS_KEYS.LLM_PROVIDER) as LlmSettings['provider']) ||
+      getDefaultProvider();
+    const defaults = getDefaultSettings(provider);
+
     return {
       llm: {
-        provider: (settingsMap.get(SETTINGS_KEYS.LLM_PROVIDER) as LlmSettings['provider']) ||
-          DEFAULT_SETTINGS.llm.provider,
-        model: settingsMap.get(SETTINGS_KEYS.LLM_MODEL) || DEFAULT_SETTINGS.llm.model,
-        apiKey: settingsMap.get(SETTINGS_KEYS.LLM_API_KEY) ||
-          getEnvApiKey(
-            (settingsMap.get(SETTINGS_KEYS.LLM_PROVIDER) as string) || DEFAULT_SETTINGS.llm.provider,
-          ),
-        baseUrl: settingsMap.get(SETTINGS_KEYS.LLM_BASE_URL) || DEFAULT_SETTINGS.llm.baseUrl,
+        provider,
+        model: settingsMap.get(SETTINGS_KEYS.LLM_MODEL) || defaults.llm.model,
+        apiKey: settingsMap.get(SETTINGS_KEYS.LLM_API_KEY) || getEnvApiKey(provider),
+        baseUrl: settingsMap.get(SETTINGS_KEYS.LLM_BASE_URL) || defaults.llm.baseUrl,
         temperature: settingsMap.has(SETTINGS_KEYS.LLM_TEMPERATURE)
           ? parseFloat(settingsMap.get(SETTINGS_KEYS.LLM_TEMPERATURE)!)
-          : DEFAULT_SETTINGS.llm.temperature,
+          : defaults.llm.temperature,
         maxTokens: settingsMap.has(SETTINGS_KEYS.LLM_MAX_TOKENS)
           ? parseInt(settingsMap.get(SETTINGS_KEYS.LLM_MAX_TOKENS)!, 10)
-          : DEFAULT_SETTINGS.llm.maxTokens,
+          : defaults.llm.maxTokens,
       },
     };
   }
@@ -146,7 +163,7 @@ export class SettingsService {
     for (const key of Object.values(SETTINGS_KEYS)) {
       await this.db.deleteSetting(key);
     }
-    return DEFAULT_SETTINGS;
+    return getDefaultSettings();
   }
 
   /**

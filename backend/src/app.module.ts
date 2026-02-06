@@ -13,6 +13,7 @@ import { CandidatesModule } from './candidates/candidates.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: '../.env',
     }),
     DatabaseModule,
     LlmModule,

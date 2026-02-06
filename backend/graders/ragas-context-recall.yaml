@@ -1,8 +1,0 @@
-name: "RAGAS Context Recall"
-description: "Measures what fraction of the ground truth answer is present in the retrieved context. Ensures the retriever fetched all necessary information."
-type: promptfoo
-config:
-  assertion: context-recall
-  threshold: 0.7
-inspiration: "RAGAS framework (Retrieval Augmented Generation Assessment). Uses sentence-level comparison between ground truth and context."
-reference: "https://arxiv.org/abs/2309.15217"

@@ -11,8 +11,13 @@ import { LlmService } from '../llm/llm.service';
  */
 export class LlmJudgeGrader extends BaseGrader {
   constructor(
-    graderConfig: { name: string; description?: string; rubric?: string; config?: Record<string, unknown> },
-    private llmService: LlmService,
+    graderConfig: {
+      name: string;
+      description?: string;
+      rubric?: string;
+      config?: Record<string, unknown>;
+    },
+    private llmService: LlmService
   ) {
     super(graderConfig);
   }
@@ -43,7 +48,21 @@ Respond with ONLY a JSON object in this exact format:
         systemPrompt,
       });
 
-      return this.parseResponse(response);
+      const judged = this.parseResponse(response);
+
+      // Optional: allow callers to enforce pass/fail via a numeric score threshold.
+      // This makes the "threshold" UI control meaningful for llm-judge graders.
+      const thresholdRaw = this.getConfigValue<unknown>('threshold', null);
+      const threshold = typeof thresholdRaw === 'number' ? thresholdRaw : null;
+
+      if (threshold !== null) {
+        return {
+          ...judged,
+          pass: judged.score >= threshold,
+        };
+      }
+
+      return judged;
     } catch (error) {
       return {
         pass: false,
@@ -91,7 +110,12 @@ Based on the rubric, evaluate whether the output passes or fails. Provide a scor
 
       return {
         pass: Boolean(parsed.pass),
-        score: typeof parsed.score === 'number' ? Math.max(0, Math.min(1, parsed.score)) : (parsed.pass ? 1 : 0),
+        score:
+          typeof parsed.score === 'number'
+            ? Math.max(0, Math.min(1, parsed.score))
+            : parsed.pass
+              ? 1
+              : 0,
         reason: String(parsed.reason || 'No reason provided'),
       };
     } catch {

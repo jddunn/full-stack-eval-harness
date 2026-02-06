@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { use } from 'react';
+import { useState, useEffect, useCallback, use } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -17,10 +16,13 @@ import {
   RotateCcw,
   Trash2,
   X,
+  Info,
+  Wand2,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { promptsApi, datasetsApi, settingsApi } from '@/lib/api';
+import { promptsApi, datasetsApi, presetsApi, settingsApi } from '@/lib/api';
 import { useToast } from '@/components/Toast';
+import { Tooltip } from '@/components/Tooltip';
 import type { Candidate, Dataset } from '@/lib/types';
 
 interface LlmSettings {
@@ -28,6 +30,15 @@ interface LlmSettings {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+}
+
+function toWorkspaceRelativePath(absPath?: string): string | null {
+  if (!absPath) return null;
+  const idx = absPath.lastIndexOf('/backend/');
+  if (idx !== -1) {
+    return absPath.slice(idx + 1);
+  }
+  return absPath;
 }
 
 interface EditableCandidate {
@@ -67,12 +78,18 @@ function toEditable(c: Candidate, settings?: LlmSettings): EditableCandidate {
     runnerType: c.runnerType || 'llm_prompt',
     systemPrompt: c.systemPrompt || '',
     userPromptTemplate: c.userPromptTemplate || '',
-    temperature: c.modelConfig?.temperature !== undefined
-      ? String(c.modelConfig.temperature)
-      : (settings?.temperature !== undefined ? String(settings.temperature) : ''),
-    maxTokens: c.modelConfig?.maxTokens !== undefined
-      ? String(c.modelConfig.maxTokens)
-      : (settings?.maxTokens !== undefined ? String(settings.maxTokens) : ''),
+    temperature:
+      c.modelConfig?.temperature !== undefined
+        ? String(c.modelConfig.temperature)
+        : settings?.temperature !== undefined
+          ? String(settings.temperature)
+          : '',
+    maxTokens:
+      c.modelConfig?.maxTokens !== undefined
+        ? String(c.modelConfig.maxTokens)
+        : settings?.maxTokens !== undefined
+          ? String(settings.maxTokens)
+          : '',
     provider: (c.modelConfig?.provider as string) || settings?.provider || '',
     model: (c.modelConfig?.model as string) || settings?.model || '',
     endpointUrl: c.endpointUrl || '',
@@ -85,11 +102,7 @@ function toEditable(c: Candidate, settings?: LlmSettings): EditableCandidate {
   };
 }
 
-export default function CandidateDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const { toast } = useToast();
@@ -103,6 +116,7 @@ export default function CandidateDetailPage({
   const [error, setError] = useState<string | null>(null);
   const [llmDefaults, setLlmDefaults] = useState<LlmSettings | null>(null);
   const [showTest, setShowTest] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [testInput, setTestInput] = useState('');
   const [testResult, setTestResult] = useState<{
     output: string;
@@ -112,15 +126,36 @@ export default function CandidateDetailPage({
   const [showAdvanced, setShowAdvanced] = useState(false);
   // Variant management
   const [variantModal, setVariantModal] = useState(false);
-  const [variantForm, setVariantForm] = useState({ label: '', name: '', description: '', systemPrompt: '' });
+  const [variantForm, setVariantForm] = useState({
+    label: '',
+    name: '',
+    description: '',
+    systemPrompt: '',
+  });
   const [creatingVariant, setCreatingVariant] = useState(false);
+  const [suggestingName, setSuggestingName] = useState(false);
   const [aiVariantModal, setAiVariantModal] = useState(false);
   const [aiVariantForm, setAiVariantForm] = useState({
-    count: '3', customInstructions: '', provider: '', model: '', temperature: '', maxTokens: '',
+    count: '3',
+    customInstructions: '',
+    provider: '',
+    model: '',
+    temperature: '',
+    maxTokens: '',
   });
   const [generatingVariants, setGeneratingVariants] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Generate dataset modal
+  const [genDatasetModal, setGenDatasetModal] = useState(false);
+  const [genDatasetForm, setGenDatasetForm] = useState({
+    name: '',
+    topic: '',
+    count: 5,
+    style: 'qa' as 'qa' | 'classification' | 'extraction' | 'rag',
+    customInstructions: '',
+  });
+  const [generatingDataset, setGeneratingDataset] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -152,14 +187,27 @@ export default function CandidateDetailPage({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (aiVariantModal) { setAiVariantModal(false); return; }
-        if (variantModal) { setVariantModal(false); return; }
-        if (confirmDelete) { setConfirmDelete(false); return; }
+        if (genDatasetModal) {
+          setGenDatasetModal(false);
+          return;
+        }
+        if (aiVariantModal) {
+          setAiVariantModal(false);
+          return;
+        }
+        if (variantModal) {
+          setVariantModal(false);
+          return;
+        }
+        if (confirmDelete) {
+          setConfirmDelete(false);
+          return;
+        }
       }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [aiVariantModal, variantModal, confirmDelete]);
+  }, [genDatasetModal, aiVariantModal, variantModal, confirmDelete]);
 
   const isDirty = useCallback(() => {
     if (!edited || !original) return false;
@@ -234,6 +282,7 @@ export default function CandidateDetailPage({
   const handleTest = async () => {
     if (!testInput.trim()) return;
     setTestResult(null);
+    setTesting(true);
     try {
       const result = await promptsApi.test(id, { input: testInput });
       setTestResult(result);
@@ -243,12 +292,16 @@ export default function CandidateDetailPage({
         latencyMs: 0,
         error: err instanceof Error ? err.message : 'Unknown error',
       });
+    } finally {
+      setTesting(false);
     }
   };
 
   const openVariantModal = () => {
     setVariantForm({
-      label: '', name: '', description: '',
+      label: '',
+      name: '',
+      description: '',
       systemPrompt: candidate?.systemPrompt || '',
     });
     setVariantModal(true);
@@ -256,7 +309,8 @@ export default function CandidateDetailPage({
 
   const openAiVariantModal = () => {
     setAiVariantForm({
-      count: '3', customInstructions: '',
+      count: '3',
+      customInstructions: '',
       provider: llmDefaults?.provider || '',
       model: llmDefaults?.model || '',
       temperature: llmDefaults?.temperature !== undefined ? String(llmDefaults.temperature) : '',
@@ -284,25 +338,60 @@ export default function CandidateDetailPage({
     }
   };
 
+  const handleSuggestName = async () => {
+    if (!variantForm.label.trim()) return;
+    setSuggestingName(true);
+    try {
+      const result = await promptsApi.suggestVariantName(id, {
+        variantLabel: variantForm.label.trim(),
+        systemPrompt: variantForm.systemPrompt || undefined,
+      });
+      setVariantForm({ ...variantForm, name: result.name });
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to suggest name', 'error');
+    } finally {
+      setSuggestingName(false);
+    }
+  };
+
   const handleGenerateVariants = async () => {
     const count = parseInt(aiVariantForm.count, 10);
-    const temperature = aiVariantForm.temperature.trim() ? parseFloat(aiVariantForm.temperature) : undefined;
-    const maxTokens = aiVariantForm.maxTokens.trim() ? parseInt(aiVariantForm.maxTokens, 10) : undefined;
-    if (!Number.isInteger(count) || count < 1) { toast('Count must be a positive integer', 'warning'); return; }
-    if (temperature !== undefined && Number.isNaN(temperature)) { toast('Temperature must be a valid number', 'warning'); return; }
-    if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || maxTokens <= 0)) { toast('Max tokens must be a positive integer', 'warning'); return; }
+    const temperature = aiVariantForm.temperature.trim()
+      ? parseFloat(aiVariantForm.temperature)
+      : undefined;
+    const maxTokens = aiVariantForm.maxTokens.trim()
+      ? parseInt(aiVariantForm.maxTokens, 10)
+      : undefined;
+    if (!Number.isInteger(count) || count < 1) {
+      toast('Count must be a positive integer', 'warning');
+      return;
+    }
+    if (temperature !== undefined && Number.isNaN(temperature)) {
+      toast('Temperature must be a valid number', 'warning');
+      return;
+    }
+    if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || maxTokens <= 0)) {
+      toast('Max tokens must be a positive integer', 'warning');
+      return;
+    }
     setGeneratingVariants(true);
     try {
       const result = await promptsApi.generateVariants(id, {
         count,
         customInstructions: aiVariantForm.customInstructions.trim() || undefined,
-        provider: aiVariantForm.provider.trim() ? aiVariantForm.provider.trim() as 'openai' | 'anthropic' | 'ollama' : undefined,
+        provider: aiVariantForm.provider.trim()
+          ? (aiVariantForm.provider.trim() as 'openai' | 'anthropic' | 'ollama')
+          : undefined,
         model: aiVariantForm.model.trim() || undefined,
-        temperature, maxTokens,
+        temperature,
+        maxTokens,
       });
       setAiVariantModal(false);
       await loadData();
-      toast(`Generated ${result.created.length} variant(s)${result.skipped.length > 0 ? `, skipped ${result.skipped.length}.` : '.'}`, 'success');
+      toast(
+        `Generated ${result.created.length} variant(s)${result.skipped.length > 0 ? `, skipped ${result.skipped.length}.` : '.'}`,
+        'success'
+      );
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to generate variants', 'error');
     } finally {
@@ -319,6 +408,39 @@ export default function CandidateDetailPage({
       toast(err instanceof Error ? err.message : 'Failed to delete', 'error');
       setDeleting(false);
       setConfirmDelete(false);
+    }
+  };
+
+  const openGenDatasetModal = () => {
+    setGenDatasetForm({
+      name: `${candidate?.name || id} Dataset`,
+      topic: candidate?.description || '',
+      count: 5,
+      style: 'qa',
+      customInstructions: '',
+    });
+    setGenDatasetModal(true);
+  };
+
+  const handleGenerateDataset = async () => {
+    if (!genDatasetForm.name.trim() || !genDatasetForm.topic.trim()) return;
+    setGeneratingDataset(true);
+    try {
+      await presetsApi.generateSyntheticDataset({
+        name: genDatasetForm.name.trim(),
+        topic: genDatasetForm.topic.trim(),
+        count: genDatasetForm.count,
+        style: genDatasetForm.style,
+        customInstructions: genDatasetForm.customInstructions.trim() || undefined,
+        forCandidateId: id,
+      });
+      setGenDatasetModal(false);
+      toast('Dataset generated and linked to this candidate', 'success');
+      await loadData(); // Refresh to show new dataset in sidebar
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to generate dataset', 'error');
+    } finally {
+      setGeneratingDataset(false);
     }
   };
 
@@ -352,28 +474,24 @@ export default function CandidateDetailPage({
   }
 
   // Find linked datasets
-  const linkedDatasets = datasets.filter(
-    (d) => candidate.recommendedDatasets?.includes(d.id),
-  );
+  const linkedDatasets = datasets.filter((d) => candidate.recommendedDatasets?.includes(d.id));
 
   // Variant relationships
   const isVariant = !!candidate.parentId;
-  const parentCandidate = isVariant
-    ? allCandidates.find((c) => c.id === candidate.parentId)
-    : null;
+  const parentCandidate = isVariant ? allCandidates.find((c) => c.id === candidate.parentId) : null;
   const variants = isVariant
     ? [] // variants don't have sub-variants
     : allCandidates.filter((c) => c.parentId === id);
+
+  // `filePath` should always be present for file-based prompts; avoid misleading fallbacks.
+  const sourceFile = toWorkspaceRelativePath(candidate.filePath) || '(unknown file path)';
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link
-            href="/candidates"
-            className="text-muted-foreground hover:text-foreground"
-          >
+          <Link href="/candidates" className="text-muted-foreground hover:text-foreground">
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div>
@@ -385,17 +503,18 @@ export default function CandidateDetailPage({
               )}
               <h1 className="text-2xl font-semibold">{candidate.name}</h1>
               {isVariant && (
-                <span className="text-xs px-2 py-0.5 bg-muted rounded font-mono">
-                  variant
-                </span>
+                <span className="text-xs px-2 py-0.5 bg-muted rounded font-mono">variant</span>
               )}
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">
-              <code className="text-xs">prompts/{id}.md</code>
+              <code className="text-xs">{sourceFile}</code>
               {isVariant && parentCandidate && (
                 <span className="ml-2">
                   &larr; variant of{' '}
-                  <Link href={`/candidates/${candidate.parentId}`} className="underline hover:text-foreground">
+                  <Link
+                    href={`/candidates/${candidate.parentId}`}
+                    className="underline hover:text-foreground"
+                  >
                     {parentCandidate.name}
                   </Link>
                 </span>
@@ -404,9 +523,7 @@ export default function CandidateDetailPage({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {isDirty() && (
-            <span className="text-xs text-amber-500">Unsaved changes</span>
-          )}
+          {isDirty() && <span className="text-xs text-amber-500">Unsaved changes</span>}
           {!isVariant && (
             <>
               <button
@@ -439,11 +556,7 @@ export default function CandidateDetailPage({
             disabled={!isDirty() || saving}
             className="btn-primary flex items-center gap-2"
           >
-            {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             Save to Disk
           </button>
           <button
@@ -475,16 +588,14 @@ export default function CandidateDetailPage({
                 />
               </div>
               <div>
-                <label className="text-xs font-medium block mb-1">
+                <label className="text-xs font-medium block mb-1 flex items-center gap-2">
                   Runner Type
+                  <Tooltip text="LLM Prompt: sends system prompt + user template to an AI model (OpenAI, Anthropic, Ollama). HTTP Endpoint: calls an external API with test data — use for custom models or microservices." />
                 </label>
                 <select
                   value={edited.runnerType}
                   onChange={(e) =>
-                    updateField(
-                      'runnerType',
-                      e.target.value as 'llm_prompt' | 'http_endpoint',
-                    )
+                    updateField('runnerType', e.target.value as 'llm_prompt' | 'http_endpoint')
                   }
                   className="input"
                 >
@@ -494,9 +605,7 @@ export default function CandidateDetailPage({
               </div>
             </div>
             <div>
-              <label className="text-xs font-medium block mb-1">
-                Description
-              </label>
+              <label className="text-xs font-medium block mb-1">Description</label>
               <input
                 type="text"
                 value={edited.description}
@@ -526,15 +635,12 @@ export default function CandidateDetailPage({
               User Prompt Template
             </h2>
             <p className="text-xs text-muted-foreground">
-              Use {'{{input}}'}, {'{{context}}'}, {'{{metadata.*}}'} as
-              template variables.
+              Use {'{{input}}'}, {'{{context}}'}, {'{{metadata.*}}'} as template variables.
             </p>
             <input
               type="text"
               value={edited.userPromptTemplate}
-              onChange={(e) =>
-                updateField('userPromptTemplate', e.target.value)
-              }
+              onChange={(e) => updateField('userPromptTemplate', e.target.value)}
               className="input font-mono text-sm"
               placeholder="{{input}}"
             />
@@ -548,52 +654,72 @@ export default function CandidateDetailPage({
               </h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="text-xs font-medium block mb-1">
-                    Provider
-                  </label>
-                  <input
-                    type="text"
+                  <label className="text-xs font-medium block mb-1">Provider</label>
+                  <select
                     value={edited.provider}
-                    onChange={(e) => updateField('provider', e.target.value)}
+                    onChange={(e) => {
+                      const newProvider = e.target.value;
+                      const models = MODEL_OPTIONS[newProvider] || MODEL_OPTIONS.openai;
+                      setEdited((prev) =>
+                        prev ? { ...prev, provider: newProvider, model: models[0] || '' } : prev
+                      );
+                    }}
                     className="input"
-                    placeholder="e.g., openai, anthropic"
-                  />
+                  >
+                    <option value="">Default ({llmDefaults?.provider || 'openai'})</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="ollama">Ollama</option>
+                  </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium block mb-1">
-                    Model
-                  </label>
-                  <input
-                    type="text"
+                  <label className="text-xs font-medium block mb-1">Model</label>
+                  <select
                     value={edited.model}
                     onChange={(e) => updateField('model', e.target.value)}
                     className="input"
-                    placeholder="e.g., gpt-4, claude-3-opus"
-                  />
+                  >
+                    <option value="">Default ({llmDefaults?.model || 'gpt-5.2'})</option>
+                    {(
+                      MODEL_OPTIONS[edited.provider || llmDefaults?.provider || 'openai'] ||
+                      MODEL_OPTIONS.openai
+                    ).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                        {MODEL_PRICING[m] ? ` (${MODEL_PRICING[m]})` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium block mb-1">
-                    Temperature
-                  </label>
-                  <input
-                    type="text"
+                  <label className="text-xs font-medium block mb-1">Temperature</label>
+                  <select
                     value={edited.temperature}
                     onChange={(e) => updateField('temperature', e.target.value)}
                     className="input"
-                    placeholder="0.0"
-                  />
+                  >
+                    <option value="">Default ({llmDefaults?.temperature ?? 0.7})</option>
+                    {TEMPERATURE_OPTIONS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium block mb-1">
-                    Max Tokens
-                  </label>
-                  <input
-                    type="text"
+                  <label className="text-xs font-medium block mb-1">Max Tokens</label>
+                  <select
                     value={edited.maxTokens}
                     onChange={(e) => updateField('maxTokens', e.target.value)}
                     className="input"
-                    placeholder="e.g., 1024"
-                  />
+                  >
+                    <option value="">Default ({llmDefaults?.maxTokens ?? 1024})</option>
+                    {MAX_TOKEN_OPTIONS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
@@ -607,28 +733,20 @@ export default function CandidateDetailPage({
               </h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <label className="text-xs font-medium block mb-1">
-                    Endpoint URL
-                  </label>
+                  <label className="text-xs font-medium block mb-1">Endpoint URL</label>
                   <input
                     type="text"
                     value={edited.endpointUrl}
-                    onChange={(e) =>
-                      updateField('endpointUrl', e.target.value)
-                    }
+                    onChange={(e) => updateField('endpointUrl', e.target.value)}
                     className="input"
                     placeholder="https://api.example.com/generate"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium block mb-1">
-                    HTTP Method
-                  </label>
+                  <label className="text-xs font-medium block mb-1">HTTP Method</label>
                   <select
                     value={edited.endpointMethod || 'POST'}
-                    onChange={(e) =>
-                      updateField('endpointMethod', e.target.value)
-                    }
+                    onChange={(e) => updateField('endpointMethod', e.target.value)}
                     className="input"
                   >
                     <option value="POST">POST</option>
@@ -637,14 +755,10 @@ export default function CandidateDetailPage({
                 </div>
               </div>
               <div>
-                <label className="text-xs font-medium block mb-1">
-                  Body Template (JSON)
-                </label>
+                <label className="text-xs font-medium block mb-1">Body Template (JSON)</label>
                 <textarea
                   value={edited.endpointBodyTemplate}
-                  onChange={(e) =>
-                    updateField('endpointBodyTemplate', e.target.value)
-                  }
+                  onChange={(e) => updateField('endpointBodyTemplate', e.target.value)}
                   className="input font-mono text-sm min-h-[100px] resize-y"
                   placeholder='{"prompt": "{{input}}"}'
                 />
@@ -668,58 +782,44 @@ export default function CandidateDetailPage({
             {showAdvanced && (
               <div className="px-4 pb-4 space-y-4 border-t border-border pt-4">
                 <div>
-                  <label className="text-xs font-medium block mb-1">
-                    Recommended Graders
-                  </label>
+                  <label className="text-xs font-medium block mb-1">Recommended Graders</label>
                   <p className="text-[11px] text-muted-foreground mb-1">
                     Comma-separated. Append :weight for weighted scoring (e.g.{' '}
-                    <code>faithfulness-strict:0.5, llm-judge-helpful:0.3</code>)
+                    <code>faithfulness:0.5, llm-judge-helpful:0.3</code>)
                   </p>
                   <input
                     type="text"
                     value={edited.recommendedGraders}
-                    onChange={(e) =>
-                      updateField('recommendedGraders', e.target.value)
-                    }
+                    onChange={(e) => updateField('recommendedGraders', e.target.value)}
                     className="input font-mono text-sm"
                     placeholder="grader-id:0.5, other-grader:0.3"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium block mb-1">
-                    Grader Rationale
-                  </label>
+                  <label className="text-xs font-medium block mb-1">Grader Rationale</label>
                   <input
                     type="text"
                     value={edited.graderRationale}
-                    onChange={(e) =>
-                      updateField('graderRationale', e.target.value)
-                    }
+                    onChange={(e) => updateField('graderRationale', e.target.value)}
                     className="input"
                     placeholder="Why these graders and weights?"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium block mb-1">
-                    Recommended Datasets
-                  </label>
+                  <label className="text-xs font-medium block mb-1">Recommended Datasets</label>
                   <p className="text-[11px] text-muted-foreground mb-1">
                     Comma-separated dataset IDs
                   </p>
                   <input
                     type="text"
                     value={edited.recommendedDatasets}
-                    onChange={(e) =>
-                      updateField('recommendedDatasets', e.target.value)
-                    }
+                    onChange={(e) => updateField('recommendedDatasets', e.target.value)}
                     className="input font-mono text-sm"
                     placeholder="context-qa, research-paper-extraction"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium block mb-1">
-                    Notes
-                  </label>
+                  <label className="text-xs font-medium block mb-1">Notes</label>
                   <textarea
                     value={edited.notes}
                     onChange={(e) => updateField('notes', e.target.value)}
@@ -741,20 +841,28 @@ export default function CandidateDetailPage({
             </h3>
             <div className="flex items-center gap-2 text-sm">
               <FileText className="h-4 w-4 text-muted-foreground" />
-              <code className="text-xs">prompts/{id}.md</code>
+              <code className="text-xs">{sourceFile}</code>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Edit the <code>.md</code> file directly or use this form. Changes
-              are saved to disk immediately.
+              Edit the <code>.md</code> file directly or use this form. Changes are saved to disk
+              immediately.
             </p>
           </div>
 
           {/* Linked datasets */}
-          {linkedDatasets.length > 0 && (
-            <div className="card p-4 space-y-2">
-              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                Linked Datasets
-              </h3>
+          <div className="card p-4 space-y-2">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              Linked Datasets
+              <span className="group relative inline-block">
+                <Info className="h-3.5 w-3.5 cursor-help opacity-60" />
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-foreground text-background text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-normal z-50 w-56 text-center font-normal normal-case tracking-normal">
+                  Datasets this candidate is designed to run against. Select one when creating an
+                  experiment.
+                  <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-foreground" />
+                </span>
+              </span>
+            </h3>
+            {linkedDatasets.length > 0 ? (
               <div className="space-y-1">
                 {linkedDatasets.map((d) => (
                   <Link
@@ -763,14 +871,22 @@ export default function CandidateDetailPage({
                     className="block text-sm hover:text-foreground text-muted-foreground transition-colors"
                   >
                     {d.name}{' '}
-                    <span className="text-xs opacity-60">
-                      ({d.testCaseCount || 0} cases)
-                    </span>
+                    <span className="text-xs opacity-60">({d.testCaseCount || 0} cases)</span>
                   </Link>
                 ))}
               </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No datasets linked yet.</p>
+            )}
+            <div className="pt-1">
+              <button
+                onClick={openGenDatasetModal}
+                className="btn-ghost text-xs px-2 py-1 flex items-center gap-1"
+              >
+                <Wand2 className="h-3 w-3" /> Generate Dataset
+              </button>
             </div>
-          )}
+          </div>
 
           {/* Variants list */}
           {!isVariant && variants.length > 0 && (
@@ -788,15 +904,16 @@ export default function CandidateDetailPage({
                   >
                     {v.name}
                     {v.variantLabel && (
-                      <span className="ml-1 text-xs opacity-60 font-mono">
-                        ({v.variantLabel})
-                      </span>
+                      <span className="ml-1 text-xs opacity-60 font-mono">({v.variantLabel})</span>
                     )}
                   </Link>
                 ))}
               </div>
               <div className="pt-2 flex gap-1">
-                <button onClick={openVariantModal} className="btn-ghost text-xs px-2 py-1 flex items-center gap-1">
+                <button
+                  onClick={openVariantModal}
+                  className="btn-ghost text-xs px-2 py-1 flex items-center gap-1"
+                >
                   <Plus className="h-3 w-3" /> Manual
                 </button>
                 <button onClick={openAiVariantModal} className="btn-ghost text-xs px-2 py-1">
@@ -830,10 +947,17 @@ export default function CandidateDetailPage({
                 />
                 <button
                   onClick={handleTest}
-                  disabled={!testInput.trim()}
-                  className="btn-primary w-full"
+                  disabled={!testInput.trim() || testing}
+                  className={`btn-primary w-full flex items-center justify-center gap-2 ${testing ? 'animate-pulse' : ''}`}
                 >
-                  Run Test
+                  {testing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Running...
+                    </>
+                  ) : (
+                    'Run Test'
+                  )}
                 </button>
                 {testResult && (
                   <div
@@ -843,12 +967,8 @@ export default function CandidateDetailPage({
                       <p>Error: {testResult.error}</p>
                     ) : (
                       <>
-                        <p className="font-mono whitespace-pre-wrap">
-                          {testResult.output}
-                        </p>
-                        <p className="text-muted-foreground mt-2">
-                          {testResult.latencyMs}ms
-                        </p>
+                        <p className="font-mono whitespace-pre-wrap">{testResult.output}</p>
+                        <p className="text-muted-foreground mt-2">{testResult.latencyMs}ms</p>
                       </>
                     )}
                   </div>
@@ -883,8 +1003,18 @@ export default function CandidateDetailPage({
               )}
             </p>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setConfirmDelete(false)} className="btn-secondary" disabled={deleting}>Cancel</button>
-              <button onClick={handleDelete} className="btn-primary bg-red-600 hover:bg-red-700" disabled={deleting}>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="btn-secondary"
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                className="btn-primary bg-red-600 hover:bg-red-700"
+                disabled={deleting}
+              >
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>
             </div>
@@ -898,7 +1028,9 @@ export default function CandidateDetailPage({
           <div className="card p-6 w-full max-w-lg">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">Create Variant of {candidate.name}</h2>
-              <button onClick={() => setVariantModal(false)} className="btn-ghost p-1"><X className="h-5 w-5" /></button>
+              <button onClick={() => setVariantModal(false)} className="btn-ghost p-1">
+                <X className="h-5 w-5" />
+              </button>
             </div>
             <div className="space-y-4">
               <div>
@@ -911,18 +1043,40 @@ export default function CandidateDetailPage({
                   placeholder="e.g., concise, formal, strict"
                 />
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Creates <code>{id}-{variantForm.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || '...'}.md</code>
+                  Creates{' '}
+                  <code>
+                    {id}-
+                    {variantForm.label
+                      .toLowerCase()
+                      .replace(/[^a-z0-9]+/g, '-')
+                      .replace(/(^-|-$)/g, '') || '...'}
+                    .md
+                  </code>
                 </p>
               </div>
               <div>
                 <label className="text-sm font-medium block mb-1">Display Name</label>
-                <input
-                  type="text"
-                  value={variantForm.name}
-                  onChange={(e) => setVariantForm({ ...variantForm, name: e.target.value })}
-                  className="input"
-                  placeholder="Auto-generated if empty"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={variantForm.name}
+                    onChange={(e) => setVariantForm({ ...variantForm, name: e.target.value })}
+                    className="input flex-1"
+                    placeholder="Auto-generated if empty"
+                  />
+                  <button
+                    onClick={handleSuggestName}
+                    disabled={suggestingName || !variantForm.label.trim()}
+                    className="btn-secondary px-2 shrink-0"
+                    title="Auto-generate name with AI"
+                  >
+                    {suggestingName ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Wand2 className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="text-sm font-medium block mb-1">Description</label>
@@ -943,9 +1097,132 @@ export default function CandidateDetailPage({
                 />
               </div>
               <div className="flex gap-2 justify-end">
-                <button onClick={() => setVariantModal(false)} className="btn-secondary" disabled={creatingVariant}>Cancel</button>
-                <button onClick={handleCreateVariant} className="btn-primary" disabled={creatingVariant || !variantForm.label.trim()}>
+                <button
+                  onClick={() => setVariantModal(false)}
+                  className="btn-secondary"
+                  disabled={creatingVariant}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateVariant}
+                  className="btn-primary"
+                  disabled={creatingVariant || !variantForm.label.trim()}
+                >
                   {creatingVariant ? 'Creating...' : 'Create Variant'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Generate Dataset Modal */}
+      {genDatasetModal && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="card p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Wand2 className="h-5 w-5" />
+                Generate Dataset
+              </h2>
+              <button onClick={() => setGenDatasetModal(false)} className="btn-ghost p-1">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Generate a synthetic dataset for <strong>{candidate.name}</strong>. It will be
+              auto-linked to this candidate.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium block mb-1">Dataset Name</label>
+                <input
+                  type="text"
+                  value={genDatasetForm.name}
+                  onChange={(e) => setGenDatasetForm({ ...genDatasetForm, name: e.target.value })}
+                  className="input"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">Topic</label>
+                <input
+                  type="text"
+                  value={genDatasetForm.topic}
+                  onChange={(e) => setGenDatasetForm({ ...genDatasetForm, topic: e.target.value })}
+                  placeholder="e.g., Basic arithmetic, Python programming"
+                  className="input"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium block mb-1">Style</label>
+                  <select
+                    value={genDatasetForm.style}
+                    onChange={(e) =>
+                      setGenDatasetForm({
+                        ...genDatasetForm,
+                        style: e.target.value as typeof genDatasetForm.style,
+                      })
+                    }
+                    className="input"
+                  >
+                    <option value="qa">Q&A</option>
+                    <option value="classification">Classification</option>
+                    <option value="extraction">Extraction</option>
+                    <option value="rag">RAG</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium block mb-1">Count</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={genDatasetForm.count}
+                    onChange={(e) =>
+                      setGenDatasetForm({
+                        ...genDatasetForm,
+                        count: parseInt(e.target.value) || 5,
+                      })
+                    }
+                    className="input"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">
+                  Custom Instructions (optional)
+                </label>
+                <textarea
+                  value={genDatasetForm.customInstructions}
+                  onChange={(e) =>
+                    setGenDatasetForm({
+                      ...genDatasetForm,
+                      customInstructions: e.target.value,
+                    })
+                  }
+                  placeholder="e.g., Focus on edge cases, include multi-step questions"
+                  className="input min-h-[80px] resize-y"
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setGenDatasetModal(false)}
+                  className="btn-secondary"
+                  disabled={generatingDataset}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleGenerateDataset}
+                  className="btn-primary"
+                  disabled={
+                    generatingDataset || !genDatasetForm.name.trim() || !genDatasetForm.topic.trim()
+                  }
+                >
+                  {generatingDataset ? 'Generating...' : 'Generate'}
                 </button>
               </div>
             </div>
@@ -959,35 +1236,58 @@ export default function CandidateDetailPage({
           <div className="card p-6 w-full max-w-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">Generate Variants (AI)</h2>
-              <button onClick={() => setAiVariantModal(false)} className="btn-ghost p-1"><X className="h-5 w-5" /></button>
+              <button onClick={() => setAiVariantModal(false)} className="btn-ghost p-1">
+                <X className="h-5 w-5" />
+              </button>
             </div>
             <p className="text-sm text-muted-foreground mb-4">
-              Generate multiple prompt variations for <strong>{candidate.name}</strong>.
-              Config starts from your Settings defaults.
+              Generate multiple prompt variations for <strong>{candidate.name}</strong>. Variant
+              names, labels, and system prompts are auto-generated by the AI. Config starts from
+              your Settings defaults.
             </p>
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-medium block mb-1">Number of Variants</label>
                 <input
-                  type="number" min={1} max={10}
+                  type="number"
+                  min={1}
+                  max={10}
                   value={aiVariantForm.count}
                   onChange={(e) => setAiVariantForm({ ...aiVariantForm, count: e.target.value })}
                   className="input"
                 />
               </div>
               <div>
-                <label className="text-sm font-medium block mb-1">Custom Instructions (optional)</label>
+                <label className="text-sm font-medium block mb-1">
+                  Custom Instructions (optional)
+                </label>
                 <textarea
                   value={aiVariantForm.customInstructions}
-                  onChange={(e) => setAiVariantForm({ ...aiVariantForm, customInstructions: e.target.value })}
+                  onChange={(e) =>
+                    setAiVariantForm({ ...aiVariantForm, customInstructions: e.target.value })
+                  }
                   placeholder="e.g., keep outputs short, optimize for strict factual grounding"
                   className="input min-h-[90px] resize-y"
                 />
               </div>
-              <LlmConfigGrid form={aiVariantForm} setForm={setAiVariantForm} defaults={llmDefaults} />
+              <LlmConfigGrid
+                form={aiVariantForm}
+                setForm={setAiVariantForm}
+                defaults={llmDefaults}
+              />
               <div className="flex gap-2 justify-end">
-                <button onClick={() => setAiVariantModal(false)} className="btn-secondary" disabled={generatingVariants}>Cancel</button>
-                <button onClick={handleGenerateVariants} className="btn-primary" disabled={generatingVariants}>
+                <button
+                  onClick={() => setAiVariantModal(false)}
+                  className="btn-secondary"
+                  disabled={generatingVariants}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleGenerateVariants}
+                  className="btn-primary"
+                  disabled={generatingVariants}
+                >
                   {generatingVariants ? 'Generating...' : 'Generate Variants'}
                 </button>
               </div>
@@ -1008,14 +1308,11 @@ function buildPreviewFrontmatter(e: EditableCandidate): string {
   if (e.maxTokens) lines.push(`max_tokens: ${e.maxTokens}`);
   if (e.provider) lines.push(`provider: ${e.provider}`);
   if (e.model) lines.push(`model: ${e.model}`);
-  if (e.userPromptTemplate)
-    lines.push(`user_template: "${e.userPromptTemplate}"`);
+  if (e.userPromptTemplate) lines.push(`user_template: "${e.userPromptTemplate}"`);
   if (e.endpointUrl) lines.push(`endpoint_url: ${e.endpointUrl}`);
   if (e.endpointMethod) lines.push(`endpoint_method: ${e.endpointMethod}`);
-  if (e.recommendedGraders)
-    lines.push(`recommended_graders: ${e.recommendedGraders}`);
-  if (e.recommendedDatasets)
-    lines.push(`recommended_datasets: ${e.recommendedDatasets}`);
+  if (e.recommendedGraders) lines.push(`recommended_graders: ${e.recommendedGraders}`);
+  if (e.recommendedDatasets) lines.push(`recommended_datasets: ${e.recommendedDatasets}`);
   if (e.graderRationale) lines.push(`grader_rationale: ${e.graderRationale}`);
   if (e.notes) lines.push(`notes: ${e.notes}`);
   lines.push('---');
@@ -1024,17 +1321,62 @@ function buildPreviewFrontmatter(e: EditableCandidate): string {
 
 const MODEL_OPTIONS: Record<string, string[]> = {
   openai: [
-    'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
-    'gpt-4o', 'gpt-4o-mini',
-    'o3', 'o4-mini', 'o3-mini', 'o1',
+    'gpt-5.2',
+    'gpt-5.1',
+    'gpt-5',
+    'gpt-5-mini',
+    'gpt-5-nano',
+    'gpt-4.1',
+    'gpt-4.1-mini',
+    'gpt-4.1-nano',
+    'gpt-4o',
+    'gpt-4o-mini',
+    'o3',
+    'o4-mini',
+    'o3-mini',
+    'o1',
   ],
   anthropic: [
     'claude-opus-4-6',
-    'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001',
-    'claude-sonnet-4-20250514', 'claude-opus-4-20250514',
-    'claude-3-haiku-20240307',
+    'claude-opus-4-5-20251101',
+    'claude-sonnet-4-5-20250929',
+    'claude-sonnet-4-20250514',
+    'claude-haiku-4-5-20251001',
+    'claude-haiku-3-5',
   ],
-  ollama: ['dolphin-llama3:8b', 'llama3.2:3b', 'llama3:8b', 'mistral', 'codellama', 'gemma:7b', 'phi3'],
+  ollama: [
+    'dolphin-llama3:8b',
+    'llama3.2:3b',
+    'llama3:8b',
+    'mistral',
+    'codellama',
+    'gemma:7b',
+    'phi3',
+  ],
+};
+
+/** Pricing per 1M tokens: in (input) · out (output) */
+const MODEL_PRICING: Record<string, string> = {
+  'gpt-5.2': 'in: $1.75 · out: $14 /1M tok',
+  'gpt-5.1': 'in: $1.25 · out: $10 /1M tok',
+  'gpt-5': 'in: $1.25 · out: $10 /1M tok',
+  'gpt-5-mini': 'in: $0.25 · out: $2 /1M tok',
+  'gpt-5-nano': 'in: $0.05 · out: $0.40 /1M tok',
+  'gpt-4.1': 'in: $2 · out: $8 /1M tok',
+  'gpt-4.1-mini': 'in: $0.40 · out: $1.60 /1M tok',
+  'gpt-4.1-nano': 'in: $0.10 · out: $0.40 /1M tok',
+  'gpt-4o': 'in: $2.50 · out: $10 /1M tok',
+  'gpt-4o-mini': 'in: $0.15 · out: $0.60 /1M tok',
+  o3: 'in: $2 · out: $8 /1M tok',
+  'o4-mini': 'in: $1.10 · out: $4.40 /1M tok',
+  'o3-mini': 'in: $0.55 · out: $2.20 /1M tok',
+  o1: 'in: $15 · out: $60 /1M tok',
+  'claude-opus-4-6': 'in: $5 · out: $25 /1M tok',
+  'claude-opus-4-5-20251101': 'in: $5 · out: $25 /1M tok',
+  'claude-sonnet-4-5-20250929': 'in: $3 · out: $15 /1M tok',
+  'claude-sonnet-4-20250514': 'in: $3 · out: $15 /1M tok',
+  'claude-haiku-4-5-20251001': 'in: $1 · out: $5 /1M tok',
+  'claude-haiku-3-5': 'in: $0.80 · out: $4 /1M tok',
 };
 
 const TEMPERATURE_OPTIONS = ['0', '0.1', '0.3', '0.5', '0.7', '0.9', '1.0', '1.5', '2.0'];
@@ -1076,7 +1418,10 @@ function LlmConfigGrid({
         >
           <option value="">Default ({defaults?.model || models[0]})</option>
           {models.map((m) => (
-            <option key={m} value={m}>{m}</option>
+            <option key={m} value={m}>
+              {m}
+              {MODEL_PRICING[m] ? ` (${MODEL_PRICING[m]})` : ''}
+            </option>
           ))}
         </select>
       </div>
@@ -1089,7 +1434,9 @@ function LlmConfigGrid({
         >
           <option value="">Default ({defaults?.temperature ?? 0.7})</option>
           {TEMPERATURE_OPTIONS.map((t) => (
-            <option key={t} value={t}>{t}</option>
+            <option key={t} value={t}>
+              {t}
+            </option>
           ))}
         </select>
       </div>
@@ -1102,7 +1449,9 @@ function LlmConfigGrid({
         >
           <option value="">Default ({defaults?.maxTokens ?? 1024})</option>
           {MAX_TOKEN_OPTIONS.map((t) => (
-            <option key={t} value={t}>{t}</option>
+            <option key={t} value={t}>
+              {t}
+            </option>
           ))}
         </select>
       </div>

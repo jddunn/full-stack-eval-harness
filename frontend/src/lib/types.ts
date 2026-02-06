@@ -11,6 +11,7 @@ export interface Dataset {
   metaPath?: string | null;
   testCaseCount?: number;
   testCases?: TestCase[];
+  synthetic?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -79,6 +80,7 @@ export interface Candidate {
   graderRationale?: string;
   notes?: string;
   source?: 'file';
+  filePath?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -89,7 +91,12 @@ export interface Experiment {
   datasetId: string;
   graderIds: string[];
   candidateIds?: string[];
+  modelConfig?: { provider?: string; model?: string };
   status: 'pending' | 'running' | 'completed' | 'failed';
+  passRate?: number | null;
+  totalResults?: number;
+  passed?: number;
+  failed?: number;
   createdAt: string;
   completedAt?: string;
   results?: ExperimentResult[];
@@ -107,6 +114,8 @@ export interface ExperimentResult {
   output?: string;
   generatedOutput?: string;
   latencyMs?: number;
+  modelProvider?: string;
+  modelName?: string;
   createdAt: string;
 }
 

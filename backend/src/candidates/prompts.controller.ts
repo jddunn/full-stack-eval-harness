@@ -57,6 +57,17 @@ export class PromptsController {
   }
 
   /**
+   * Suggest a display name for a variant using the configured LLM.
+   */
+  @Post(':id/variant/suggest-name')
+  suggestVariantName(
+    @Param('id') id: string,
+    @Body() body: { variantLabel: string; systemPrompt?: string },
+  ) {
+    return this.variantGenerator.suggestVariantName(id, body);
+  }
+
+  /**
    * Generate multiple variants of a prompt using the configured LLM.
    * Generation options are configurable per request and fall back to global settings.
    */

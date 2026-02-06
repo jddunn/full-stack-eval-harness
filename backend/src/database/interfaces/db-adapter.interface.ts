@@ -62,6 +62,7 @@ export interface Experiment {
   datasetId: string;
   graderIds: string;
   candidateIds: string | null; // JSON array, nullable for legacy
+  modelConfig: string | null; // JSON: {provider?, model?}
   status: string;
   createdAt: Date;
   completedAt: Date | null;
@@ -79,6 +80,8 @@ export interface ExperimentResult {
   output: string | null;
   generatedOutput: string | null;
   latencyMs: number | null;
+  modelProvider: string | null;
+  modelName: string | null;
   createdAt: Date;
 }
 
@@ -154,6 +157,7 @@ export interface InsertExperiment {
   datasetId: string;
   graderIds: string;
   candidateIds?: string | null;
+  modelConfig?: string | null;
   status: string;
   createdAt: Date;
   completedAt?: Date | null;
@@ -171,6 +175,8 @@ export interface InsertExperimentResult {
   output?: string | null;
   generatedOutput?: string | null;
   latencyMs?: number | null;
+  modelProvider?: string | null;
+  modelName?: string | null;
   createdAt: Date;
 }
 

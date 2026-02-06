@@ -1,23 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { ChevronRight, RefreshCw, Upload, Info, ChevronDown, Wand2 } from 'lucide-react';
+import { ChevronRight, RefreshCw, Upload, ChevronDown, Wand2, Info, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { datasetsApi, presetsApi } from '@/lib/api';
+import { datasetsApi, presetsApi, promptsApi } from '@/lib/api';
 import { useToast } from '@/components/Toast';
-import type { Dataset } from '@/lib/types';
-
-function Tooltip({ text }: { text: string }) {
-  return (
-    <div className="group relative inline-block">
-      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-foreground text-background text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 max-w-xs text-center">
-        {text}
-        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-foreground" />
-      </div>
-    </div>
-  );
-}
+import { Tooltip } from '@/components/Tooltip';
+import type { Dataset, Candidate } from '@/lib/types';
 
 const SYNTHETIC_STYLES = [
   { value: 'qa', label: 'Q&A', description: 'Question-answer pairs' },
@@ -29,6 +18,7 @@ const SYNTHETIC_STYLES = [
 export default function DatasetsPage() {
   const { toast } = useToast();
   const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [reloading, setReloading] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
@@ -42,10 +32,15 @@ export default function DatasetsPage() {
     count: 5,
     style: 'qa' as 'qa' | 'classification' | 'extraction' | 'rag',
     customInstructions: '',
+    forCandidateId: '' as string,
   });
 
   useEffect(() => {
     loadDatasets();
+    promptsApi
+      .list()
+      .then(setCandidates)
+      .catch(() => {});
   }, []);
 
   async function loadDatasets() {
@@ -56,6 +51,18 @@ export default function DatasetsPage() {
       console.error('Failed to load datasets:', error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Map dataset IDs to candidate names that use them
+  const datasetCandidateMap = new Map<string, string[]>();
+  for (const c of candidates) {
+    if (c.recommendedDatasets) {
+      for (const dsId of c.recommendedDatasets) {
+        const list = datasetCandidateMap.get(dsId) || [];
+        list.push(c.name);
+        datasetCandidateMap.set(dsId, list);
+      }
     }
   }
 
@@ -102,6 +109,7 @@ export default function DatasetsPage() {
         count: syntheticForm.count,
         style: syntheticForm.style,
         customInstructions: syntheticForm.customInstructions.trim() || undefined,
+        forCandidateId: syntheticForm.forCandidateId || undefined,
       });
       setSyntheticForm({
         name: '',
@@ -109,6 +117,7 @@ export default function DatasetsPage() {
         count: 5,
         style: 'qa',
         customInstructions: '',
+        forCandidateId: '',
       });
       setShowSyntheticModal(false);
       loadDatasets();
@@ -117,6 +126,19 @@ export default function DatasetsPage() {
       toast('Failed to generate. Check LLM configuration.', 'error');
     } finally {
       setGeneratingSynthetic(false);
+    }
+  }
+
+  async function handleDelete(dataset: Dataset) {
+    if (!confirm(`Delete "${dataset.name}"? This removes the folder from disk and cannot be undone.`))
+      return;
+    try {
+      await datasetsApi.delete(dataset.id);
+      toast(`Deleted "${dataset.name}"`, 'success');
+      await loadDatasets();
+    } catch (error) {
+      console.error('Failed to delete dataset:', error);
+      toast('Failed to delete dataset.', 'error');
     }
   }
 
@@ -182,24 +204,29 @@ export default function DatasetsPage() {
           <Info className="h-4 w-4" />
           How datasets work
         </span>
-        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${showGuide ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          className={`h-4 w-4 text-muted-foreground transition-transform ${showGuide ? 'rotate-180' : ''}`}
+        />
       </button>
       {showGuide && (
         <div className="card p-5 space-y-3 text-sm text-muted-foreground">
           <p>
-            Datasets are <strong className="text-foreground">CSV files</strong> in <code>backend/datasets/</code>.
-            Each CSV has columns: <code>input</code>, <code>expected_output</code>, <code>context</code>, <code>metadata</code>.
+            Datasets are <strong className="text-foreground">CSV files</strong> in{' '}
+            <code>backend/datasets/</code>. Each CSV has columns: <code>input</code>,{' '}
+            <code>expected_output</code>, <code>context</code>, <code>metadata</code>.
           </p>
           <p>
-            <strong className="text-foreground">To add a dataset:</strong> Place a <code>.csv</code> file in the datasets directory
-            and click &ldquo;Reload from Disk&rdquo;, or use &ldquo;Upload CSV&rdquo; to import directly.
+            <strong className="text-foreground">To add a dataset:</strong> Create a subfolder in the
+            datasets directory with a <code>data.csv</code> file and click &ldquo;Reload from
+            Disk&rdquo;, or use &ldquo;Upload CSV&rdquo; to import directly.
           </p>
           <p>
-            An optional <code>.meta.json</code> sidecar provides the dataset name and description.
-            Without it, the name is derived from the filename.
+            An optional <code>meta.yaml</code> in the subfolder provides the dataset name and
+            description. Without it, the name is derived from the folder name.
           </p>
           <p>
-            <strong className="text-foreground">Generate</strong> uses AI to create test cases and saves them as a new CSV file.
+            <strong className="text-foreground">Generate</strong> uses AI to create test cases and
+            saves them as a new CSV file.
           </p>
         </div>
       )}
@@ -230,20 +257,53 @@ export default function DatasetsPage() {
                 className="flex-1 flex items-center gap-4 hover:opacity-80"
               >
                 <div>
-                  <h3 className="font-medium">{dataset.name}</h3>
+                  <h3 className="font-medium flex items-center gap-2">
+                    {dataset.name}
+                    {dataset.synthetic && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded text-[11px] font-medium">
+                        <Wand2 className="h-3 w-3" />
+                        AI Generated
+                      </span>
+                    )}
+                  </h3>
                   {dataset.description && (
-                    <p className="text-sm text-muted-foreground mt-0.5">
-                      {dataset.description}
-                    </p>
+                    <p className="text-sm text-muted-foreground mt-0.5">{dataset.description}</p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1">
                     <code className="text-[11px]">{dataset.filePath || `${dataset.id}.csv`}</code>
                     {' · '}
-                    {dataset.testCaseCount || 0} test cases
+                    {dataset.testCaseCount || 0} records (test cases)
                   </p>
+                  {datasetCandidateMap.get(dataset.id) && (
+                    <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 flex-wrap">
+                      <span className="opacity-60">Used by:</span>
+                      {datasetCandidateMap.get(dataset.id)!.map((name) => (
+                        <span
+                          key={name}
+                          className="inline-block px-1.5 py-0.5 bg-muted rounded text-[11px]"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </p>
+                  )}
                 </div>
-                <ChevronRight className="h-5 w-5 text-muted-foreground ml-auto" />
               </Link>
+              <div className="flex items-center gap-2 ml-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(dataset);
+                  }}
+                  className="p-1.5 text-muted-foreground hover:text-red-400 transition-colors"
+                  title="Delete dataset"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <Link href={`/datasets/${dataset.id}`}>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </Link>
+              </div>
             </div>
           ))}
         </div>
@@ -266,13 +326,49 @@ export default function DatasetsPage() {
                 <input
                   type="text"
                   value={syntheticForm.name}
-                  onChange={(e) =>
-                    setSyntheticForm({ ...syntheticForm, name: e.target.value })
-                  }
+                  onChange={(e) => setSyntheticForm({ ...syntheticForm, name: e.target.value })}
                   placeholder="Physics Questions"
                   className="input"
                   autoFocus
                 />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1 flex items-center gap-2">
+                  For Candidate (optional)
+                  <Tooltip text="Link this dataset to a candidate prompt. The dataset will auto-appear in its recommended datasets." />
+                </label>
+                <select
+                  value={syntheticForm.forCandidateId}
+                  onChange={(e) => {
+                    const candidateId = e.target.value;
+                    const candidate = candidates.find((c) => c.id === candidateId);
+                    setSyntheticForm({
+                      ...syntheticForm,
+                      forCandidateId: candidateId,
+                      // Auto-fill topic from candidate description if topic is empty
+                      ...(candidateId && candidate?.description && !syntheticForm.topic
+                        ? { topic: candidate.description }
+                        : {}),
+                    });
+                  }}
+                  className="input"
+                >
+                  <option value="">None (standalone dataset)</option>
+                  {candidates
+                    .filter((c) => !c.parentId)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  {candidates
+                    .filter((c) => c.parentId)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        &nbsp;&nbsp;{c.variantLabel ? `↳ ${c.name}` : c.name}
+                      </option>
+                    ))}
+                </select>
               </div>
               <div>
                 <label className="text-sm font-medium block mb-1 flex items-center gap-2">
@@ -282,9 +378,7 @@ export default function DatasetsPage() {
                 <input
                   type="text"
                   value={syntheticForm.topic}
-                  onChange={(e) =>
-                    setSyntheticForm({ ...syntheticForm, topic: e.target.value })
-                  }
+                  onChange={(e) => setSyntheticForm({ ...syntheticForm, topic: e.target.value })}
                   placeholder="e.g., Basic arithmetic, Python programming, US History"
                   className="input"
                 />

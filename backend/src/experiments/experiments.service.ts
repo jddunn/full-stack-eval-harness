@@ -14,6 +14,10 @@ export interface CreateExperimentDto {
   datasetId: string;
   graderIds: string[];
   candidateIds?: string[];
+  modelConfig?: {
+    provider?: string;
+    model?: string;
+  };
 }
 
 export interface ExperimentProgress {
@@ -52,11 +56,22 @@ export class ExperimentsService {
    */
   async findAll() {
     const experiments = await this.db.findAllExperiments();
-    return experiments.map((e) => ({
-      ...e,
-      graderIds: JSON.parse(e.graderIds),
-      candidateIds: e.candidateIds ? JSON.parse(e.candidateIds) : null,
-    }));
+    const results = await Promise.all(
+      experiments.map(async (e) => {
+        const stats = await this.db.getExperimentStats(e.id);
+        return {
+          ...e,
+          graderIds: JSON.parse(e.graderIds),
+          candidateIds: e.candidateIds ? JSON.parse(e.candidateIds) : null,
+          modelConfig: e.modelConfig ? JSON.parse(e.modelConfig) : null,
+          passRate: stats.total > 0 ? stats.passed / stats.total : null,
+          totalResults: stats.total,
+          passed: stats.passed,
+          failed: stats.failed,
+        };
+      })
+    );
+    return results;
   }
 
   /**
@@ -75,8 +90,21 @@ export class ExperimentsService {
       ...experiment,
       graderIds: JSON.parse(experiment.graderIds),
       candidateIds: experiment.candidateIds ? JSON.parse(experiment.candidateIds) : null,
+      modelConfig: experiment.modelConfig ? JSON.parse(experiment.modelConfig) : null,
       results,
     };
+  }
+
+  /**
+   * Delete an experiment and its results.
+   */
+  async remove(id: string) {
+    const experiment = await this.db.findExperimentById(id);
+    if (!experiment) {
+      throw new NotFoundException(`Experiment ${id} not found`);
+    }
+    await this.db.deleteExperiment(id);
+    return { deleted: true };
   }
 
   /**
@@ -92,17 +120,68 @@ export class ExperimentsService {
       candidates = this.promptLoaderService.findMany(dto.candidateIds);
     }
 
+    // Ensure dataset exists in SQLite (file-based datasets skip the DB)
+    const existingRow = await this.db.findDatasetById(dto.datasetId);
+    if (!existingRow) {
+      const now = new Date();
+      await this.db.insertDataset({
+        id: dataset.id,
+        name: dataset.name,
+        description: dataset.description || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    // Ensure test cases exist in SQLite (file-based datasets only live in memory)
+    for (const tc of dataset.testCases) {
+      const existingTC = await this.db.findTestCaseById(tc.id);
+      if (!existingTC) {
+        await this.db.insertTestCase({
+          id: tc.id,
+          datasetId: dataset.id,
+          input: tc.input,
+          expectedOutput: tc.expectedOutput || null,
+          context: tc.context || null,
+          metadata: tc.metadata
+            ? typeof tc.metadata === 'string'
+              ? tc.metadata
+              : JSON.stringify(tc.metadata)
+            : null,
+          createdAt: new Date(),
+        });
+      }
+    }
+
+    // Ensure graders exist in SQLite (file-based graders are YAML-only)
+    for (const grader of graders) {
+      const existingGrader = await this.db.findGraderById(grader.id);
+      if (!existingGrader) {
+        await this.db.insertGrader({
+          id: grader.id,
+          name: grader.name,
+          description: grader.description || null,
+          type: grader.type,
+          rubric: grader.rubric || null,
+          config: grader.config ? JSON.stringify(grader.config) : null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+    }
+
     const experiment = await this.db.insertExperiment({
       id: randomUUID(),
       name: dto.name || `Experiment ${new Date().toISOString().slice(0, 16)}`,
       datasetId: dto.datasetId,
       graderIds: JSON.stringify(dto.graderIds),
       candidateIds: candidates.length > 0 ? JSON.stringify(dto.candidateIds) : null,
+      modelConfig: dto.modelConfig ? JSON.stringify(dto.modelConfig) : null,
       status: 'pending',
       createdAt: new Date(),
     });
 
-    this.runExperiment(experiment.id, dataset, graders, candidates);
+    this.runExperiment(experiment.id, dataset, graders, candidates, dto.modelConfig);
 
     return {
       ...experiment,
@@ -134,13 +213,19 @@ export class ExperimentsService {
     experimentId: string,
     dataset: Awaited<ReturnType<typeof this.datasetsService.findOne>>,
     graders: Awaited<ReturnType<typeof this.gradersService.findMany>>,
-    candidates: any[]
+    candidates: any[],
+    modelConfig?: { provider?: string; model?: string }
   ) {
     const subject = this.experimentStreams.get(experimentId) || new Subject<ExperimentProgress>();
     this.experimentStreams.set(experimentId, subject);
 
     try {
       await this.db.updateExperiment(experimentId, { status: 'running' });
+
+      // Resolve model metadata for results storage
+      const globalSettings = await this.llmService.getFullSettings();
+      const resolvedProvider = modelConfig?.provider || globalSettings.provider || 'openai';
+      const resolvedModel = modelConfig?.model || globalSettings.model || '';
 
       const testCases = dataset.testCases;
       const hasCandidates = candidates.length > 0;
@@ -173,7 +258,18 @@ export class ExperimentsService {
               ...(testCase.customFields || {}),
             };
 
-            const runResult = await this.candidateRunnerService.run(candidate, {
+            // Merge experiment-level model config into candidate
+            const candidateWithModel = modelConfig
+              ? {
+                  ...candidate,
+                  modelConfig: {
+                    ...(modelConfig || {}),
+                    ...(candidate.modelConfig || {}),
+                  },
+                }
+              : candidate;
+
+            const runResult = await this.candidateRunnerService.run(candidateWithModel, {
               input: testCase.input,
               expectedOutput: testCase.expectedOutput || undefined,
               context: testCase.context || undefined,
@@ -181,6 +277,67 @@ export class ExperimentsService {
             });
 
             const generatedOutput = runResult.output;
+
+            if (runResult.error) {
+              const generationError = `Generation error: ${runResult.error}`;
+
+              subject.next({
+                type: 'generation',
+                experimentId,
+                testCaseId: testCase.id,
+                candidateId: candidate.id,
+                error: runResult.error,
+              });
+
+              // Preserve matrix shape by emitting one failed result per grader.
+              for (const graderDef of graders) {
+                current++;
+
+                subject.next({
+                  type: 'progress',
+                  experimentId,
+                  testCaseId: testCase.id,
+                  graderId: graderDef.id,
+                  candidateId: candidate.id,
+                  current,
+                  total: totalEvals,
+                });
+
+                await this.db.insertResult({
+                  id: randomUUID(),
+                  experimentId,
+                  testCaseId: testCase.id,
+                  graderId: graderDef.id,
+                  candidateId: candidate.id,
+                  pass: false,
+                  score: 0,
+                  reason: generationError,
+                  output: testCase.expectedOutput || '',
+                  generatedOutput,
+                  latencyMs: runResult.latencyMs,
+                  modelProvider: resolvedProvider,
+                  modelName: resolvedModel,
+                  createdAt: new Date(),
+                });
+
+                subject.next({
+                  type: 'result',
+                  experimentId,
+                  testCaseId: testCase.id,
+                  graderId: graderDef.id,
+                  candidateId: candidate.id,
+                  current,
+                  total: totalEvals,
+                  result: {
+                    pass: false,
+                    score: 0,
+                    reason: generationError,
+                  },
+                });
+              }
+
+              continue;
+            }
 
             subject.next({
               type: 'generation',
@@ -237,6 +394,8 @@ export class ExperimentsService {
                   output: testCase.expectedOutput || '',
                   generatedOutput,
                   latencyMs: runResult.latencyMs,
+                  modelProvider: resolvedProvider,
+                  modelName: resolvedModel,
                   createdAt: new Date(),
                 });
 
@@ -267,6 +426,8 @@ export class ExperimentsService {
                   output: testCase.expectedOutput || '',
                   generatedOutput,
                   latencyMs: runResult.latencyMs,
+                  modelProvider: resolvedProvider,
+                  modelName: resolvedModel,
                   createdAt: new Date(),
                 });
 
@@ -459,12 +620,12 @@ export class ExperimentsService {
     const challengerResults = results.filter((r) => r.candidateId === challengerId);
 
     // Build lookup by testCaseId+graderId
-    const baselineMap = new Map<string, typeof baselineResults[0]>();
+    const baselineMap = new Map<string, (typeof baselineResults)[0]>();
     for (const r of baselineResults) {
       baselineMap.set(`${r.testCaseId}:${r.graderId}`, r);
     }
 
-    const challengerMap = new Map<string, typeof challengerResults[0]>();
+    const challengerMap = new Map<string, (typeof challengerResults)[0]>();
     for (const r of challengerResults) {
       challengerMap.set(`${r.testCaseId}:${r.graderId}`, r);
     }
