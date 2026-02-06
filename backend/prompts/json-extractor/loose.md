@@ -4,9 +4,9 @@ description: Extraction with inference — fills gaps using reasoning. For compa
 runner: llm_prompt
 temperature: 0.3
 user_template: "Extract structured information from the following document:\n\n{{input}}"
-recommended_graders: extraction-schema:0.4, extraction-completeness:0.4, faithfulness:0.2
+recommended_graders: extraction-completeness:0.6, faithfulness:0.4
 recommended_datasets: research-paper-extraction
-grader_rationale: Same as strict but with moderate faithfulness — this prompt allows inference, so we lower the grounding bar while keeping structural requirements equal.
+grader_rationale: Completeness weighted higher since this prompt allows inference — faithfulness still matters but the bar is lower than strict mode.
 notes: Expected to score higher on completeness but lower on faithfulness vs strict extractor.
 ---
 

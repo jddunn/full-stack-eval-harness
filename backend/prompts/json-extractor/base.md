@@ -4,9 +4,9 @@ description: Grounded extraction — outputs only facts present in the source te
 runner: llm_prompt
 temperature: 0
 user_template: "Extract structured information from the following document:\n\n{{input}}"
-recommended_graders: extraction-schema:0.4, extraction-completeness:0.4, faithfulness:0.2
+recommended_graders: extraction-completeness:0.5, faithfulness:0.5
 recommended_datasets: research-paper-extraction
-grader_rationale: Schema validation and completeness are equally critical — output must be valid JSON AND capture all fields. Faithfulness ensures extracted values match the source.
+grader_rationale: Completeness and faithfulness are equally critical — output must capture all fields AND extracted values must match the source.
 notes: Compare against json-extractor-loose to see how strict grounding affects extraction quality.
 ---
 

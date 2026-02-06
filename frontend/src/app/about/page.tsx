@@ -218,14 +218,6 @@ You are a technical analyst...`}
                     <td className="py-1.5 pr-3">built-in</td>
                     <td className="py-1.5">optional</td>
                   </tr>
-                  <tr className="border-b border-border/50">
-                    <td className="py-1.5 pr-3 font-medium text-foreground">
-                      Paper Extraction Schema
-                    </td>
-                    <td className="py-1.5 pr-3">json-schema</td>
-                    <td className="py-1.5 pr-3">built-in</td>
-                    <td className="py-1.5">&mdash;</td>
-                  </tr>
                   <tr>
                     <td className="py-1.5 pr-3 font-medium text-foreground">Semantic Similarity</td>
                     <td className="py-1.5 pr-3">semantic-similarity</td>
@@ -457,8 +449,7 @@ You are a technical analyst...`}
                   methodology, keywords, limitations, and citations.
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  <strong>Graders:</strong> extraction-schema:0.4, extraction-completeness:0.4,
-                  faithfulness:0.2
+                  <strong>Graders:</strong> extraction-completeness:0.5, faithfulness:0.5
                 </p>
               </div>
 
@@ -473,8 +464,7 @@ You are a technical analyst...`}
                   score higher on completeness but lower on faithfulness vs strict mode.
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  <strong>Graders:</strong> extraction-schema:0.4, extraction-completeness:0.4,
-                  faithfulness:0.2
+                  <strong>Graders:</strong> extraction-completeness:0.6, faithfulness:0.4
                 </p>
               </div>
             </div>
@@ -882,9 +872,9 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
             </p>
             <p className="text-muted-foreground leading-relaxed">
               Measures whether output means the same thing as the expected answer, regardless of
-              wording. Based on Sentence-BERT (Reimers &amp; Gurevych, 2019) &mdash; transformer
-              models fine-tuned with siamese networks produce embeddings where semantic similarity =
-              cosine distance. Same meaning, different words &rarr; vectors point the same direction.
+              wording. Uses provider embedding APIs (OpenAI <code>text-embedding-3-small</code>,
+              Ollama) to produce vector representations where semantic similarity = cosine distance.
+              Same meaning, different words &rarr; vectors point the same direction.
             </p>
             <p className="text-muted-foreground leading-relaxed mt-2">
               <strong>Implementation:</strong> Three-tier fallback: (1) embedding cosine similarity
@@ -898,9 +888,7 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               expensive LLM-as-judge.
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              <a href="https://arxiv.org/abs/1908.10084" target="_blank" rel="noopener noreferrer" className="link">
-                Sentence-BERT (Reimers &amp; Gurevych, 2019)
-              </a>
+              Embeddings via configured LLM provider (OpenAI, Ollama, or LLM-generated fallback for Anthropic)
             </p>
           </div>
 
@@ -970,9 +958,9 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               from YAML config, reports up to 5 specific violations. Deterministic, instant, free.
             </p>
             <p className="text-muted-foreground leading-relaxed mt-2">
-              <strong>Shipped schema:</strong> Paper extraction &mdash; requires{' '}
-              <code>title</code>, <code>authors</code>, <code>keyFindings</code>,{' '}
-              <code>keywords</code> with correct types. Nullable fields for optional data.
+              <strong>Usage:</strong> Define a JSON Schema in the grader&apos;s YAML config. The
+              grader validates output structure (required fields, types, arrays) without any LLM
+              calls. Create custom schemas for any extraction task.
             </p>
             <p className="text-xs text-muted-foreground mt-2">
               <a href="https://json-schema.org/specification" target="_blank" rel="noopener noreferrer" className="link">
@@ -1679,19 +1667,11 @@ Summarize in one sentence.`}
           </div>
 
           <div className="card p-5">
-            <h3 className="font-bold uppercase">Sentence-BERT</h3>
+            <h3 className="font-bold uppercase">Semantic Similarity</h3>
             <p className="text-muted-foreground mt-2 text-sm">
-              Reimers &amp; Gurevych 2019. Our semantic similarity graders use embedding cosine
-              distance to compare meaning beyond surface-level string matching.
+              Custom implementation using provider embedding APIs (OpenAI text-embedding-3-small,
+              Ollama). Cosine similarity on vectors with Jaccard + weighted token overlap fallback.
             </p>
-            <a
-              href="https://arxiv.org/abs/1908.10084"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="link text-sm mt-2 inline-flex items-center gap-1"
-            >
-              arxiv.org/abs/1908.10084 <ExternalLink className="h-3 w-3" />
-            </a>
           </div>
         </div>
       </section>

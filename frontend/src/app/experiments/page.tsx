@@ -484,9 +484,8 @@ export default function ExperimentsPage() {
             <ul className="list-disc ml-5 space-y-1 text-xs">
               <li>
                 <strong>Extraction quality:</strong> Research Paper Extraction dataset + Strict JSON
-                Extractor + Loose JSON Extractor candidates + Paper Extraction Schema + Extraction
-                Completeness graders. Compare strict (nulls for unknowns) vs loose (infers missing
-                data).
+                Extractor + Loose JSON Extractor candidates + Extraction Completeness + Faithfulness
+                graders. Compare strict (nulls for unknowns) vs loose (infers missing data).
               </li>
               <li>
                 <strong>Summarization:</strong> Summarization dataset + Summarizer + Concise

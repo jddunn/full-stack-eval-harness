@@ -41,8 +41,8 @@ const GRADER_TYPES: {
     description: 'Compares embeddings using cosine similarity',
     category: 'llm-powered',
     inspiration:
-      'Based on Sentence-BERT (Reimers & Gurevych, 2019). Computes cosine similarity between sentence embeddings, capturing meaning beyond surface-level string matching.',
-    reference: 'https://arxiv.org/abs/1908.10084',
+      'Computes cosine similarity between provider embeddings (OpenAI text-embedding-3-small, Ollama). Falls back to weighted token overlap when embeddings unavailable. Captures meaning beyond surface-level string matching.',
+    reference: undefined,
   },
   {
     value: 'contains',
@@ -423,9 +423,9 @@ export default function GradersPage() {
                     rel="noopener"
                     className="underline hover:text-foreground"
                   >
-                    Sentence-BERT
+                    Semantic Similarity
                   </a>{' '}
-                  — Reimers & Gurevych 2019. Sentence embeddings for semantic similarity
+                  — Provider embeddings (OpenAI, Ollama) with text overlap fallback
                 </li>
                 <li>
                   <a

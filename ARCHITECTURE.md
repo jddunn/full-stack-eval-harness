@@ -147,7 +147,7 @@ All graders extend this base. The interface is minimal—input, output, optional
 | Type                  | Description                       | Inspired By                              |
 | --------------------- | --------------------------------- | ---------------------------------------- |
 | `llm-judge`           | Evaluates against a custom rubric | LLM-as-Judge (Zheng et al., 2023)        |
-| `semantic-similarity` | Embedding cosine distance         | Sentence-BERT (Reimers & Gurevych, 2019) |
+| `semantic-similarity` | Embedding cosine distance         | Provider embeddings (OpenAI, Ollama) + text overlap fallback |
 
 **Promptfoo-Backed Graders:**
 
@@ -188,7 +188,7 @@ config:
 
 - **RAGAS** — Es et al. 2023. "Automated Evaluation of Retrieval Augmented Generation." Faithfulness, answer relevancy, and context relevancy metrics. https://arxiv.org/abs/2309.15217
 - **LLM-as-Judge** — Zheng et al. 2023. "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena." Rubric-based LLM evaluation. https://arxiv.org/abs/2306.05685
-- **Sentence-BERT** — Reimers & Gurevych 2019. Sentence embeddings for semantic similarity. https://arxiv.org/abs/1908.10084
+- **Semantic Similarity** — Uses provider embedding APIs (OpenAI `text-embedding-3-small`, Ollama) for cosine similarity. Falls back to Jaccard + weighted token overlap when embeddings unavailable.
 - **SQuAD** — Rajpurkar et al. 2016. Reading comprehension benchmark introducing EM/F1 metrics. https://arxiv.org/abs/1606.05250
 - **HELM** — Liang et al. 2022. Holistic evaluation of language models. https://arxiv.org/abs/2211.09110
 - **promptfoo** — Open-source LLM eval framework. Provides the assertion engine for the `promptfoo` grader type, including all RAGAS-style metrics. https://promptfoo.dev

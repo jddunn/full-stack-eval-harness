@@ -58,32 +58,6 @@ Fail if:
     tooltip: 'Cosine similarity on embeddings (threshold adjustable)',
   },
   {
-    id: 'extraction-schema',
-    name: 'Paper Extraction Schema',
-    description: 'Validates JSON output against the research paper schema',
-    type: 'json-schema',
-    config: {
-      schema: {
-        type: 'object',
-        required: ['title', 'authors', 'keyFindings', 'keywords'],
-        properties: {
-          title: { type: ['string', 'null'] },
-          authors: { type: 'array', items: { type: 'string' } },
-          publicationDate: { type: ['string', 'null'] },
-          source: { type: ['string', 'null'] },
-          abstract: { type: ['string', 'null'] },
-          keyFindings: { type: 'array', items: { type: 'string' } },
-          methodology: { type: ['string', 'null'] },
-          keywords: { type: 'array', items: { type: 'string' } },
-          limitations: { type: 'array', items: { type: 'string' } },
-          citations: { type: ['number', 'null'] },
-        },
-      },
-      strictMode: false,
-    },
-    tooltip: 'JSON Schema for structured paper extraction',
-  },
-  {
     id: 'extraction-completeness',
     name: 'Extraction Completeness Judge',
     description: 'LLM evaluates extraction quality, completeness, and grounding',

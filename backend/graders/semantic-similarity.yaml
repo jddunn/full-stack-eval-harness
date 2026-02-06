@@ -4,6 +4,7 @@ type: semantic-similarity
 config:
   threshold: 0.8
 inspiration: |
-  Based on Sentence-BERT (Reimers & Gurevych, 2019). Cosine similarity on
-  sentence embeddings captures meaning beyond surface-level string matching.
-reference: "https://arxiv.org/abs/1908.10084"
+  Cosine similarity on provider embeddings (OpenAI text-embedding-3-small,
+  Ollama, or LLM-generated fallback). Captures meaning beyond surface-level
+  string matching. Falls back to weighted token overlap when embeddings
+  are unavailable.
