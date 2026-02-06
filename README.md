@@ -185,3 +185,23 @@ cd backend
 npm test                                      # All tests
 npm test -- --testPathPattern=candidates       # Prompt loader + template utils
 ```
+
+---
+
+## Roadmap
+
+### First-Class RAG Testing
+
+Today you can evaluate RAG systems by including `context` in dataset rows and using the `context-faithfulness` grader. Candidates can also point to external RAG services via the `http_endpoint` runner type — each candidate hits a different endpoint, and the harness grades all responses against the same dataset. This means the harness works for both **prompt variation testing** (same LLM, different prompts) and **RAG pipeline comparison** (different retrieval backends, same graders).
+
+Planned: a `rag_prompt` runner with built-in retrieval config (method, topK, chunking, reranking), dataset-level source indexing (docs/URLs → chunks → vector store), and retrieval trace persistence in experiment results for debugging.
+
+Backend scaffolding exists in `backend/src/retrieval/` (interfaces + module stub).
+
+### Parallelization
+
+Experiments currently run sequentially — one test case × one candidate × one grader at a time. Since each step is an LLM API call (I/O-bound), parallelization is straightforward:
+
+1. **Concurrent promises** (planned first) — `Promise.all()` with a concurrency limiter (`p-limit`). Graders for the same output are independent and can run in parallel. Expected 5–10x speedup for typical experiments.
+2. **Batch API** — OpenAI and Anthropic offer bulk endpoints (submit many requests, get results asynchronously). 50% cost discount on OpenAI. Best for large offline runs (100+ test cases), not real-time.
+3. **Worker threads** — Only useful for in-process inference (ONNX, transformers.js). Does not help with external APIs or Ollama.
