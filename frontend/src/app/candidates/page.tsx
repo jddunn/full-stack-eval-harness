@@ -2,181 +2,107 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Plus,
-  Trash2,
-  Edit2,
-  Sparkles,
   Bot,
   Globe,
   Play,
   Loader2,
+  RefreshCw,
+  Info,
+  ChevronDown,
+  FileText,
   GitBranch,
+  Plus,
+  Trash2,
+  X,
 } from 'lucide-react';
-import { candidatesApi, presetsApi, CandidatePreset } from '@/lib/api';
-import type { Candidate, CandidateRunnerType } from '@/lib/types';
+import Link from 'next/link';
+import { promptsApi, settingsApi } from '@/lib/api';
+import { useToast } from '@/components/Toast';
+import type { Candidate } from '@/lib/types';
+
+function Tooltip({ text }: { text: string }) {
+  return (
+    <div className="group relative inline-block">
+      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-foreground text-background text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 max-w-xs text-left whitespace-normal">
+        {text}
+        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-foreground" />
+      </div>
+    </div>
+  );
+}
 
 export default function CandidatesPage() {
+  const { toast } = useToast();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [presets, setPresets] = useState<CandidatePreset[]>([]);
-  const [showPresets, setShowPresets] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testInput, setTestInput] = useState('');
   const [testResult, setTestResult] = useState<{ output: string; latencyMs: number; error?: string } | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Form state
-  const [formName, setFormName] = useState('');
-  const [formDescription, setFormDescription] = useState('');
-  const [formRunnerType, setFormRunnerType] = useState<CandidateRunnerType>('llm_prompt');
-  const [formSystemPrompt, setFormSystemPrompt] = useState('');
-  const [formUserTemplate, setFormUserTemplate] = useState('');
-  // Model config fields (structured instead of raw JSON)
-  const [formProvider, setFormProvider] = useState('');
-  const [formModel, setFormModel] = useState('');
-  const [formTemperature, setFormTemperature] = useState('');
-  const [formMaxTokens, setFormMaxTokens] = useState('');
-  const [formApiKey, setFormApiKey] = useState('');
-  const [formBaseUrl, setFormBaseUrl] = useState('');
-  // HTTP endpoint fields
-  const [formEndpointUrl, setFormEndpointUrl] = useState('');
-  const [formEndpointMethod, setFormEndpointMethod] = useState('POST');
-  const [formEndpointHeaders, setFormEndpointHeaders] = useState('');
-  const [formEndpointBody, setFormEndpointBody] = useState('');
+  const [reloading, setReloading] = useState(false);
+  const [variantModal, setVariantModal] = useState<string | null>(null);
+  const [variantForm, setVariantForm] = useState({ label: '', name: '', description: '', systemPrompt: '' });
+  const [creatingVariant, setCreatingVariant] = useState(false);
+  const [aiVariantModal, setAiVariantModal] = useState<string | null>(null);
+  const [aiVariantForm, setAiVariantForm] = useState({
+    count: '3',
+    customInstructions: '',
+    provider: '',
+    model: '',
+    temperature: '',
+    maxTokens: '',
+  });
+  const [generatingVariants, setGeneratingVariants] = useState(false);
+  const [llmDefaults, setLlmDefaults] = useState<{
+    provider?: string;
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+  } | null>(null);
 
   const loadCandidates = async () => {
     try {
-      const data = await candidatesApi.list();
+      const data = await promptsApi.list();
       setCandidates(data);
     } catch (error) {
-      console.error('Failed to load candidates:', error);
+      console.error('Failed to load prompts:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const loadPresets = async () => {
-    try {
-      const data = await presetsApi.getCandidatePresets();
-      setPresets(data);
-    } catch (error) {
-      console.error('Failed to load presets:', error);
-    }
-  };
-
   useEffect(() => {
     loadCandidates();
-    loadPresets();
+    settingsApi
+      .getLlmSettings()
+      .then((settings) => setLlmDefaults(settings))
+      .catch(() => null);
   }, []);
 
-  const resetForm = () => {
-    setFormName('');
-    setFormDescription('');
-    setFormRunnerType('llm_prompt');
-    setFormSystemPrompt('');
-    setFormUserTemplate('');
-    setFormProvider('');
-    setFormModel('');
-    setFormTemperature('');
-    setFormMaxTokens('');
-    setFormApiKey('');
-    setFormBaseUrl('');
-    setFormEndpointUrl('');
-    setFormEndpointMethod('POST');
-    setFormEndpointHeaders('');
-    setFormEndpointBody('');
-    setEditingId(null);
-  };
-
-  const openEdit = (candidate: Candidate) => {
-    setFormName(candidate.name);
-    setFormDescription(candidate.description || '');
-    setFormRunnerType(candidate.runnerType);
-    setFormSystemPrompt(candidate.systemPrompt || '');
-    setFormUserTemplate(candidate.userPromptTemplate || '');
-    setFormProvider(candidate.modelConfig?.provider || '');
-    setFormModel(candidate.modelConfig?.model || '');
-    setFormTemperature(candidate.modelConfig?.temperature !== undefined ? String(candidate.modelConfig.temperature) : '');
-    setFormMaxTokens(candidate.modelConfig?.maxTokens !== undefined ? String(candidate.modelConfig.maxTokens) : '');
-    setFormApiKey(candidate.modelConfig?.apiKey || '');
-    setFormBaseUrl(candidate.modelConfig?.baseUrl || '');
-    setFormEndpointUrl(candidate.endpointUrl || '');
-    setFormEndpointMethod(candidate.endpointMethod || 'POST');
-    setFormEndpointHeaders(
-      candidate.endpointHeaders ? JSON.stringify(candidate.endpointHeaders, null, 2) : ''
-    );
-    setFormEndpointBody(candidate.endpointBodyTemplate || '');
-    setEditingId(candidate.id);
-    setShowForm(true);
-  };
-
-  const handleSubmit = async () => {
-    const data: any = {
-      name: formName,
-      description: formDescription || undefined,
-      runnerType: formRunnerType,
+  // Escape to close modals
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (aiVariantModal) { setAiVariantModal(null); return; }
+        if (variantModal) { setVariantModal(null); return; }
+      }
     };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [aiVariantModal, variantModal]);
 
-    if (formRunnerType === 'llm_prompt') {
-      data.systemPrompt = formSystemPrompt || undefined;
-      data.userPromptTemplate = formUserTemplate || undefined;
-      // Build modelConfig from structured fields (only include non-empty values)
-      const modelConfig: Record<string, unknown> = {};
-      if (formProvider) modelConfig.provider = formProvider;
-      if (formModel) modelConfig.model = formModel;
-      if (formTemperature !== '') modelConfig.temperature = parseFloat(formTemperature);
-      if (formMaxTokens !== '') modelConfig.maxTokens = parseInt(formMaxTokens, 10);
-      if (formApiKey) modelConfig.apiKey = formApiKey;
-      if (formBaseUrl) modelConfig.baseUrl = formBaseUrl;
-      if (Object.keys(modelConfig).length > 0) {
-        data.modelConfig = modelConfig;
-      }
-    } else {
-      data.endpointUrl = formEndpointUrl || undefined;
-      data.endpointMethod = formEndpointMethod || undefined;
-      data.endpointBodyTemplate = formEndpointBody || undefined;
-      if (formEndpointHeaders) {
-        try {
-          data.endpointHeaders = JSON.parse(formEndpointHeaders);
-        } catch {
-          alert('Invalid JSON in endpoint headers');
-          return;
-        }
-      }
-    }
-
+  const handleReload = async () => {
+    setReloading(true);
     try {
-      if (editingId) {
-        await candidatesApi.update(editingId, data);
-      } else {
-        await candidatesApi.create(data);
-      }
-      setShowForm(false);
-      resetForm();
-      loadCandidates();
+      const result = await promptsApi.reload();
+      await loadCandidates();
+      toast(`Reloaded ${result.loaded} prompts from disk.`, 'success');
     } catch (error) {
-      console.error('Failed to save candidate:', error);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this candidate?')) return;
-    try {
-      await candidatesApi.delete(id);
-      loadCandidates();
-    } catch (error) {
-      console.error('Failed to delete candidate:', error);
-    }
-  };
-
-  const handleLoadPreset = async (presetId: string) => {
-    try {
-      await presetsApi.loadCandidatePreset(presetId);
-      setShowPresets(false);
-      loadCandidates();
-    } catch (error) {
-      console.error('Failed to load preset:', error);
+      console.error('Failed to reload prompts:', error);
+    } finally {
+      setReloading(false);
     }
   };
 
@@ -184,7 +110,7 @@ export default function CandidatesPage() {
     if (!testInput.trim()) return;
     setTestResult(null);
     try {
-      const result = await candidatesApi.test(candidate.id, { input: testInput });
+      const result = await promptsApi.test(candidate.id, { input: testInput });
       setTestResult(result);
     } catch (error) {
       setTestResult({
@@ -192,6 +118,119 @@ export default function CandidatesPage() {
         latencyMs: 0,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
+    }
+  };
+
+  const handleDelete = async (candidate: Candidate) => {
+    const msg = candidate.parentId
+      ? `Delete variant "${candidate.name}"? This will remove prompts/${candidate.id}.md from disk.`
+      : `Delete prompt "${candidate.name}"? This will remove prompts/${candidate.id}.md from disk. Variants will become orphans.`;
+    if (!confirm(msg)) return;
+    try {
+      await promptsApi.delete(candidate.id);
+      await loadCandidates();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Delete failed', 'error');
+    }
+  };
+
+  const openVariantModal = (parentId: string) => {
+    const parent = candidates.find((c) => c.id === parentId);
+    setVariantForm({
+      label: '',
+      name: '',
+      description: '',
+      systemPrompt: parent?.systemPrompt || '',
+    });
+    setVariantModal(parentId);
+  };
+
+  const openAiVariantModal = (parentId: string) => {
+    setAiVariantForm({
+      count: '3',
+      customInstructions: '',
+      provider: llmDefaults?.provider || '',
+      model: llmDefaults?.model || '',
+      temperature:
+        llmDefaults?.temperature !== undefined
+          ? String(llmDefaults.temperature)
+          : '',
+      maxTokens:
+        llmDefaults?.maxTokens !== undefined ? String(llmDefaults.maxTokens) : '',
+    });
+    setAiVariantModal(parentId);
+  };
+
+  const handleCreateVariant = async () => {
+    if (!variantModal || !variantForm.label.trim()) return;
+    setCreatingVariant(true);
+    try {
+      await promptsApi.createVariant(variantModal, {
+        variantLabel: variantForm.label.trim(),
+        name: variantForm.name.trim() || undefined,
+        description: variantForm.description.trim() || undefined,
+        systemPrompt: variantForm.systemPrompt || undefined,
+      });
+      setVariantModal(null);
+      await loadCandidates();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Failed to create variant', 'error');
+    } finally {
+      setCreatingVariant(false);
+    }
+  };
+
+  const handleGenerateVariants = async () => {
+    if (!aiVariantModal) return;
+
+    const count = parseInt(aiVariantForm.count, 10);
+    const temperature =
+      aiVariantForm.temperature.trim() !== ''
+        ? parseFloat(aiVariantForm.temperature)
+        : undefined;
+    const maxTokens =
+      aiVariantForm.maxTokens.trim() !== ''
+        ? parseInt(aiVariantForm.maxTokens, 10)
+        : undefined;
+
+    if (!Number.isInteger(count) || count < 1) {
+      toast('Count must be a positive integer', 'warning');
+      return;
+    }
+    if (temperature !== undefined && Number.isNaN(temperature)) {
+      toast('Temperature must be a valid number', 'warning');
+      return;
+    }
+    if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || maxTokens <= 0)) {
+      toast('Max tokens must be a positive integer', 'warning');
+      return;
+    }
+
+    setGeneratingVariants(true);
+    try {
+      const result = await promptsApi.generateVariants(aiVariantModal, {
+        count,
+        customInstructions: aiVariantForm.customInstructions.trim() || undefined,
+        provider: aiVariantForm.provider.trim()
+          ? (aiVariantForm.provider.trim() as 'openai' | 'anthropic' | 'ollama')
+          : undefined,
+        model: aiVariantForm.model.trim() || undefined,
+        temperature,
+        maxTokens,
+      });
+      setAiVariantModal(null);
+      await loadCandidates();
+      toast(
+        `Generated ${result.created.length} variant(s)` +
+          (result.skipped.length > 0
+            ? `, skipped ${result.skipped.length}.`
+            : '.'),
+        'success',
+      );
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Failed to generate variants', 'error');
+    } finally {
+      setGeneratingVariants(false);
     }
   };
 
@@ -208,457 +247,674 @@ export default function CandidatesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Candidates</h1>
+          <h1 className="text-2xl font-semibold">Prompts</h1>
           <p className="text-sm text-muted-foreground">
-            Define how to produce outputs for test cases — LLM prompts or HTTP endpoints.
+            Prompt templates loaded from <code className="text-xs">backend/prompts/*.md</code>
           </p>
         </div>
-        <div className="flex items-center gap-2 relative">
-          <button
-            onClick={() => setShowPresets(!showPresets)}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <Sparkles className="h-4 w-4" />
-            Load Preset
-          </button>
-          <button
-            onClick={() => {
-              resetForm();
-              setShowForm(true);
-            }}
-            className="btn-primary flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            New Candidate
-          </button>
+        <button
+          onClick={handleReload}
+          disabled={reloading}
+          className="btn-secondary flex items-center gap-2"
+          title="Re-scan the prompts/ directory and reload all .md files into memory"
+        >
+          <RefreshCw className={`h-4 w-4 ${reloading ? 'animate-spin' : ''}`} />
+          Reload from Disk
+        </button>
+      </div>
 
-          {/* Preset dropdown */}
-          {showPresets && (
-            <div className="absolute right-0 top-full mt-2 w-80 card p-2 z-50 shadow-xl max-h-96 overflow-y-auto">
-              {presets.map((preset) => (
+      {/* Expandable guide */}
+      <button
+        onClick={() => setShowGuide(!showGuide)}
+        className="w-full text-left px-4 py-3 card flex items-center justify-between text-sm hover:bg-muted/50 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-muted-foreground">
+          <Info className="h-4 w-4" />
+          How prompts &amp; variants work
+        </span>
+        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${showGuide ? 'rotate-180' : ''}`} />
+      </button>
+      {showGuide && (
+        <div className="card p-5 space-y-3 text-sm text-muted-foreground">
+          <p>
+            Each <strong className="text-foreground">prompt</strong> is a markdown file in <code>backend/prompts/</code>. The filename (minus <code>.md</code>) becomes the prompt ID.
+          </p>
+          <div className="border border-border p-3 rounded-md">
+            <strong className="text-foreground text-xs uppercase">File format</strong>
+            <pre className="mt-1 text-xs font-mono whitespace-pre-wrap">{`---
+name: My Prompt
+description: What this prompt does
+runner: llm_prompt
+user_template: "{{input}}"
+recommended_graders: faithfulness-strict:0.5, llm-judge-helpful:0.3
+recommended_datasets: context-qa
+grader_rationale: Why these graders and weights
+notes: Testing notes here
+---
+Your system prompt text goes here.`}</pre>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <div className="border border-border p-3 rounded-md">
+              <strong className="text-foreground text-xs uppercase">LLM Prompt</strong>
+              <p className="mt-1 text-xs">System prompt + user template sent to an LLM. Use <code>{'{{input}}'}</code>, <code>{'{{context}}'}</code>, <code>{'{{metadata.*}}'}</code> for template variables.</p>
+            </div>
+            <div className="border border-border p-3 rounded-md">
+              <strong className="text-foreground text-xs uppercase">HTTP Endpoint</strong>
+              <p className="mt-1 text-xs">Calls an external API with the test case data. Set <code>runner: http_endpoint</code> and add <code>endpoint_url</code>, <code>endpoint_method</code> fields.</p>
+            </div>
+          </div>
+          <div className="border border-border p-3 rounded-md">
+            <strong className="text-foreground text-xs uppercase">Prompt Variations</strong>
+            <p className="mt-1 text-xs">
+              Click the <strong>+ Variant</strong> button on any prompt to create a new variation. Variants clone the parent&apos;s system prompt and config
+              so you can tweak the instructions and compare results. Each variant is saved as a separate <code>.md</code> file with <code>parent_prompt</code> and <code>variant</code> frontmatter fields.
+            </p>
+            <pre className="mt-1 text-xs font-mono whitespace-pre-wrap text-foreground/70">{`# Creates: prompts/summarizer-concise.md
+parent_prompt: summarizer
+variant: concise`}</pre>
+          </div>
+          <p>
+            <strong className="text-foreground">A/B testing:</strong> Run variants in the same experiment to compare them head-to-head. The <strong>Play</strong> button lets you test a single input before running a full experiment.
+          </p>
+        </div>
+      )}
+
+      {/* Prompt list */}
+      {candidates.length === 0 ? (
+        <div className="card p-12 text-center">
+          <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+          <h3 className="text-lg font-medium mb-2">No prompts found</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Add <code>.md</code> files to <code>backend/prompts/</code> and click Reload.
+          </p>
+          <button onClick={handleReload} className="btn-secondary">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Reload from Disk
+          </button>
+        </div>
+      ) : (
+        <PromptList
+          candidates={candidates}
+          expandedId={expandedId}
+          setExpandedId={setExpandedId}
+          testingId={testingId}
+          setTestingId={setTestingId}
+          testInput={testInput}
+          setTestInput={setTestInput}
+          testResult={testResult}
+          setTestResult={setTestResult}
+          handleTest={handleTest}
+          handleDelete={handleDelete}
+          openVariantModal={openVariantModal}
+          openAiVariantModal={openAiVariantModal}
+        />
+      )}
+
+      {/* Create Variant Modal */}
+      {variantModal && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="card p-6 w-full max-w-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <GitBranch className="h-5 w-5" />
+                Create Variant of &ldquo;{candidates.find((c) => c.id === variantModal)?.name}&rdquo;
+              </h2>
+              <button onClick={() => setVariantModal(null)} className="btn-ghost p-1">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Clone this prompt with a new label. The system prompt is pre-filled from the parent — edit it to create your variation.
+              A new <code>.md</code> file will be saved to disk.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium block mb-1">
+                  Variant Label <span className="text-red-500">*</span>
+                </label>
+                <p className="text-[11px] text-muted-foreground mb-1">
+                  Becomes part of the filename: <code>{variantModal}-{variantForm.label || 'label'}.md</code>
+                </p>
+                <input
+                  type="text"
+                  value={variantForm.label}
+                  onChange={(e) => setVariantForm({ ...variantForm, label: e.target.value })}
+                  placeholder="e.g., concise, formal, v2"
+                  className="input"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">Display Name (optional)</label>
+                <input
+                  type="text"
+                  value={variantForm.name}
+                  onChange={(e) => setVariantForm({ ...variantForm, name: e.target.value })}
+                  placeholder={`e.g., ${candidates.find((c) => c.id === variantModal)?.name} (${variantForm.label || 'label'})`}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">Description (optional)</label>
+                <input
+                  type="text"
+                  value={variantForm.description}
+                  onChange={(e) => setVariantForm({ ...variantForm, description: e.target.value })}
+                  placeholder="What makes this variant different?"
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">System Prompt</label>
+                <p className="text-[11px] text-muted-foreground mb-1">
+                  Pre-filled from parent. Edit to create your variation.
+                </p>
+                <textarea
+                  value={variantForm.systemPrompt}
+                  onChange={(e) => setVariantForm({ ...variantForm, systemPrompt: e.target.value })}
+                  className="input font-mono text-sm min-h-[200px] resize-y"
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
                 <button
-                  key={preset.id}
-                  onClick={() => handleLoadPreset(preset.id)}
-                  className="w-full text-left p-3 hover:bg-muted/50 transition-colors"
-                  style={{ borderRadius: 'var(--radius)' }}
+                  onClick={() => setVariantModal(null)}
+                  className="btn-secondary"
+                  disabled={creatingVariant}
                 >
-                  <div className="flex items-center gap-2">
-                    {preset.runnerType === 'llm_prompt' ? (
-                      <Bot className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <Globe className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    <span className="text-sm font-medium">{preset.name}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">{preset.description}</p>
+                  Cancel
                 </button>
-              ))}
+                <button
+                  onClick={handleCreateVariant}
+                  className="btn-primary"
+                  disabled={creatingVariant || !variantForm.label.trim()}
+                >
+                  {creatingVariant ? 'Creating...' : 'Create Variant'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Generate Variants Modal */}
+      {aiVariantModal && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="card p-6 w-full max-w-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">
+                Generate Variants (AI)
+              </h2>
+              <button
+                onClick={() => setAiVariantModal(null)}
+                className="btn-ghost p-1"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Generate multiple prompt variations for{' '}
+              <strong className="text-foreground">
+                {candidates.find((c) => c.id === aiVariantModal)?.name}
+              </strong>
+              . Generation config is editable per run and starts from your Settings defaults.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium block mb-1">
+                  Number of Variants
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={aiVariantForm.count}
+                  onChange={(e) =>
+                    setAiVariantForm({ ...aiVariantForm, count: e.target.value })
+                  }
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-1">
+                  Custom Instructions (optional)
+                </label>
+                <textarea
+                  value={aiVariantForm.customInstructions}
+                  onChange={(e) =>
+                    setAiVariantForm({
+                      ...aiVariantForm,
+                      customInstructions: e.target.value,
+                    })
+                  }
+                  placeholder="e.g., keep outputs short, optimize for strict factual grounding"
+                  className="input min-h-[90px] resize-y"
+                />
+              </div>
+              <LlmConfigGrid form={aiVariantForm} setForm={setAiVariantForm} defaults={llmDefaults} />
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setAiVariantModal(null)}
+                  className="btn-secondary"
+                  disabled={generatingVariants}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleGenerateVariants}
+                  className="btn-primary"
+                  disabled={generatingVariants}
+                >
+                  {generatingVariants ? 'Generating...' : 'Generate Variants'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Groups candidates by parent -> variants and renders them hierarchically.
+ */
+function PromptList({
+  candidates,
+  expandedId,
+  setExpandedId,
+  testingId,
+  setTestingId,
+  testInput,
+  setTestInput,
+  testResult,
+  setTestResult,
+  handleTest,
+  handleDelete,
+  openVariantModal,
+  openAiVariantModal,
+}: {
+  candidates: Candidate[];
+  expandedId: string | null;
+  setExpandedId: (id: string | null) => void;
+  testingId: string | null;
+  setTestingId: (id: string | null) => void;
+  testInput: string;
+  setTestInput: (v: string) => void;
+  testResult: { output: string; latencyMs: number; error?: string } | null;
+  setTestResult: (v: { output: string; latencyMs: number; error?: string } | null) => void;
+  handleTest: (c: Candidate) => void;
+  handleDelete: (c: Candidate) => void;
+  openVariantModal: (parentId: string) => void;
+  openAiVariantModal: (parentId: string) => void;
+}) {
+  const bases = candidates.filter((c) => !c.parentId);
+  const variantMap = new Map<string, Candidate[]>();
+  for (const c of candidates) {
+    if (c.parentId) {
+      const list = variantMap.get(c.parentId) || [];
+      list.push(c);
+      variantMap.set(c.parentId, list);
+    }
+  }
+  const orphans = candidates.filter(
+    (c) => c.parentId && !bases.some((b) => b.id === c.parentId),
+  );
+
+  const cardProps = {
+    expandedId,
+    setExpandedId,
+    testingId,
+    setTestingId,
+    testInput,
+    setTestInput,
+    testResult,
+    setTestResult,
+    handleTest,
+    handleDelete,
+    openVariantModal,
+    openAiVariantModal,
+  };
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      {bases.map((base) => {
+        const variants = variantMap.get(base.id) || [];
+        return [
+          <PromptCard key={base.id} candidate={base} variantCount={variants.length} {...cardProps} />,
+          ...variants.map((v) => (
+            <PromptCard key={v.id} candidate={v} parentName={base.name} {...cardProps} />
+          )),
+        ];
+      })}
+      {orphans.map((c) => (
+        <PromptCard key={c.id} candidate={c} parentName={c.parentId || undefined} {...cardProps} />
+      ))}
+    </div>
+  );
+}
+
+function PromptCard({
+  candidate,
+  parentName,
+  variantCount,
+  expandedId,
+  setExpandedId,
+  testingId,
+  setTestingId,
+  testInput,
+  setTestInput,
+  testResult,
+  setTestResult,
+  handleTest,
+  handleDelete,
+  openVariantModal,
+  openAiVariantModal,
+}: {
+  candidate: Candidate;
+  parentName?: string;
+  variantCount?: number;
+  expandedId: string | null;
+  setExpandedId: (id: string | null) => void;
+  testingId: string | null;
+  setTestingId: (id: string | null) => void;
+  testInput: string;
+  setTestInput: (v: string) => void;
+  testResult: { output: string; latencyMs: number; error?: string } | null;
+  setTestResult: (v: { output: string; latencyMs: number; error?: string } | null) => void;
+  handleTest: (c: Candidate) => void;
+  handleDelete: (c: Candidate) => void;
+  openVariantModal: (parentId: string) => void;
+  openAiVariantModal: (parentId: string) => void;
+}) {
+  const isVariant = !!candidate.parentId;
+
+  return (
+    <div className={`card flex flex-col ${isVariant ? 'border-l-2 border-l-muted-foreground/30' : ''}`}>
+      {/* Clickable header area */}
+      <Link href={`/candidates/${candidate.id}`} className="p-4 pb-3 hover:bg-muted/30 transition-colors block">
+        <div className="flex items-start gap-2">
+          {candidate.runnerType === 'llm_prompt' ? (
+            <Bot className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+          ) : (
+            <Globe className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+          )}
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium truncate">{candidate.name}</h3>
+            {candidate.description && (
+              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{candidate.description}</p>
+            )}
+          </div>
+        </div>
+      </Link>
+
+      {/* Info section */}
+      <div className="px-4 pb-3 space-y-2 flex-1">
+        <div className="flex flex-wrap gap-1.5">
+          <span className="badge bg-muted text-muted-foreground font-mono text-[10px]">
+            {candidate.id}.md
+          </span>
+          <span className="badge bg-muted text-muted-foreground text-[10px]">
+            {candidate.runnerType === 'llm_prompt' ? 'LLM Prompt' : 'HTTP Endpoint'}
+          </span>
+          {isVariant && (
+            <span className="badge bg-muted text-muted-foreground text-[10px] flex items-center gap-1">
+              <GitBranch className="h-2.5 w-2.5" />
+              {candidate.variantLabel || 'variant'}
+              {parentName && <span className="opacity-60">of {parentName}</span>}
+            </span>
+          )}
+          {!isVariant && variantCount !== undefined && variantCount > 0 && (
+            <span className="badge bg-muted text-muted-foreground text-[10px] flex items-center gap-1">
+              <GitBranch className="h-2.5 w-2.5" />
+              {variantCount} variant{variantCount !== 1 ? 's' : ''}
+            </span>
+          )}
+          {candidate.modelConfig?.provider && (
+            <span className="badge bg-muted text-muted-foreground text-[10px]">
+              {candidate.modelConfig.provider}
+            </span>
+          )}
+          {candidate.modelConfig?.temperature !== undefined && (
+            <span className="badge bg-muted text-muted-foreground text-[10px]">
+              temp: {candidate.modelConfig.temperature}
+            </span>
+          )}
+        </div>
+
+        {/* Recommended graders */}
+        {candidate.recommendedGraders && candidate.recommendedGraders.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+            <span className="opacity-60">Graders:</span>
+            {candidate.recommendedGraders.map((g) => {
+              const weight = candidate.graderWeights?.[g];
+              const hasWeight = weight != null && weight !== 1;
+              return (
+                <span key={g} className="badge bg-muted/50 text-muted-foreground text-[10px]">
+                  {g}{hasWeight && <span className="ml-0.5 text-foreground/70">{Math.round(weight * 100)}%</span>}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Recommended datasets */}
+        {candidate.recommendedDatasets && candidate.recommendedDatasets.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+            <span className="opacity-60">Datasets:</span>
+            {candidate.recommendedDatasets.map((d) => (
+              <a key={d} href={`/datasets/${d}`} className="badge bg-muted/50 text-muted-foreground text-[10px] hover:text-foreground hover:bg-muted transition-colors">{d}</a>
+            ))}
+          </div>
+        )}
+
+        {/* Grader rationale */}
+        {candidate.graderRationale && (
+          <p className="text-[10px] text-muted-foreground/80 italic">{candidate.graderRationale}</p>
+        )}
+
+        {/* System prompt preview */}
+        {candidate.systemPrompt && (
+          <div>
+            <button
+              onClick={() => setExpandedId(expandedId === candidate.id ? null : candidate.id)}
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+            >
+              <ChevronDown className={`h-2.5 w-2.5 transition-transform ${expandedId === candidate.id ? 'rotate-180' : ''}`} />
+              System prompt
+            </button>
+            {expandedId === candidate.id ? (
+              <pre className="text-[10px] text-muted-foreground bg-muted/50 p-2 rounded font-mono whitespace-pre-wrap mt-1 max-h-48 overflow-y-auto">
+                {candidate.systemPrompt}
+              </pre>
+            ) : (
+              <div className="text-[10px] text-muted-foreground bg-muted/50 p-1.5 rounded font-mono overflow-hidden mt-1">
+                {candidate.systemPrompt.substring(0, 100)}
+                {candidate.systemPrompt.length > 100 && '...'}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* User template preview */}
+        {candidate.userPromptTemplate && candidate.userPromptTemplate !== '{{input}}' && (
+          <div className="text-[10px] text-muted-foreground bg-muted/50 p-1.5 rounded font-mono overflow-hidden">
+            <span className="opacity-50">Template:</span>{' '}
+            {candidate.userPromptTemplate.substring(0, 100)}
+            {candidate.userPromptTemplate.length > 100 && '...'}
+          </div>
+        )}
+      </div>
+
+      {/* Action bar */}
+      <div className="border-t border-border px-3 py-2 flex items-center gap-1">
+        {!isVariant && (
+          <>
+            <button
+              onClick={() => openVariantModal(candidate.id)}
+              className="btn-ghost px-2 py-1 text-xs flex items-center gap-1"
+            >
+              <Plus className="h-3 w-3" />
+              Variant
+            </button>
+            <button
+              onClick={() => openAiVariantModal(candidate.id)}
+              className="btn-ghost px-2 py-1 text-xs flex items-center gap-1"
+            >
+              <GitBranch className="h-3 w-3" />
+              AI Gen
+            </button>
+          </>
+        )}
+        <button
+          onClick={() => {
+            if (testingId === candidate.id) {
+              setTestingId(null);
+              setTestResult(null);
+            } else {
+              setTestingId(candidate.id);
+              setTestInput('');
+              setTestResult(null);
+            }
+          }}
+          className={`btn-ghost px-2 py-1 text-xs flex items-center gap-1 ${testingId === candidate.id ? 'bg-muted' : ''}`}
+        >
+          <Play className="h-3 w-3" />
+          Test
+        </button>
+        <div className="flex-1" />
+        <button
+          onClick={() => handleDelete(candidate)}
+          className="btn-ghost px-2 py-1 text-xs text-muted-foreground hover:text-red-500 flex items-center gap-1"
+        >
+          <Trash2 className="h-3 w-3" />
+          Delete
+        </button>
+      </div>
+
+      {/* Test panel */}
+      {testingId === candidate.id && (
+        <div className="border-t border-border px-4 py-3 space-y-2">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={testInput}
+              onChange={(e) => setTestInput(e.target.value)}
+              placeholder="Enter test input..."
+              className="input flex-1 text-sm"
+              onKeyDown={(e) => e.key === 'Enter' && handleTest(candidate)}
+            />
+            <button
+              onClick={() => handleTest(candidate)}
+              className="btn-primary text-sm"
+              disabled={!testInput.trim()}
+            >
+              Run
+            </button>
+          </div>
+          {testResult && (
+            <div
+              className={`text-xs p-2 rounded ${testResult.error ? 'bg-red-500/10 text-red-500' : 'bg-muted'}`}
+            >
+              {testResult.error ? (
+                <p>Error: {testResult.error}</p>
+              ) : (
+                <>
+                  <p className="font-mono whitespace-pre-wrap">{testResult.output}</p>
+                  <p className="text-muted-foreground mt-1">{testResult.latencyMs}ms</p>
+                </>
+              )}
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+const MODEL_OPTIONS: Record<string, string[]> = {
+  openai: [
+    'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
+    'gpt-4o', 'gpt-4o-mini',
+    'o3', 'o4-mini', 'o3-mini', 'o1',
+  ],
+  anthropic: [
+    'claude-opus-4-6',
+    'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001',
+    'claude-sonnet-4-20250514', 'claude-opus-4-20250514',
+    'claude-3-haiku-20240307',
+  ],
+  ollama: ['dolphin-llama3:8b', 'llama3.2:3b', 'llama3:8b', 'mistral', 'codellama', 'gemma:7b', 'phi3'],
+};
+
+const TEMPERATURE_OPTIONS = ['0', '0.1', '0.3', '0.5', '0.7', '0.9', '1.0', '1.5', '2.0'];
+const MAX_TOKEN_OPTIONS = ['256', '512', '1024', '2048', '4096', '8192'];
+
+function LlmConfigGrid({
+  form,
+  setForm,
+  defaults,
+}: {
+  form: { provider: string; model: string; temperature: string; maxTokens: string };
+  setForm: (f: any) => void;
+  defaults: { provider?: string; model?: string; temperature?: number; maxTokens?: number } | null;
+}) {
+  const activeProvider = form.provider || defaults?.provider || 'openai';
+  const models = MODEL_OPTIONS[activeProvider] || MODEL_OPTIONS.openai;
+
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <label className="text-sm font-medium block mb-1">Provider</label>
+        <select
+          value={form.provider}
+          onChange={(e) => setForm({ ...form, provider: e.target.value, model: '' })}
+          className="input"
+        >
+          <option value="">Default ({defaults?.provider || 'openai'})</option>
+          <option value="ollama">Ollama</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+        </select>
       </div>
-
-      {/* Candidate list */}
-      {candidates.length === 0 ? (
-        <div className="card p-12 text-center">
-          <Bot className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-lg font-medium mb-2">No candidates yet</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Create a candidate to define how outputs are generated for test cases.
-          </p>
-          <div className="flex justify-center gap-2">
-            <button onClick={() => setShowPresets(true)} className="btn-secondary">
-              Load Preset
-            </button>
-            <button
-              onClick={() => {
-                resetForm();
-                setShowForm(true);
-              }}
-              className="btn-primary"
-            >
-              Create Candidate
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {candidates.map((candidate) => (
-            <div key={candidate.id} className="card p-4 space-y-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2">
-                  {candidate.runnerType === 'llm_prompt' ? (
-                    <Bot className="h-5 w-5 text-muted-foreground" />
-                  ) : (
-                    <Globe className="h-5 w-5 text-muted-foreground" />
-                  )}
-                  <div>
-                    <h3 className="text-sm font-medium">{candidate.name}</h3>
-                    {candidate.description && (
-                      <p className="text-xs text-muted-foreground">{candidate.description}</p>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      if (testingId === candidate.id) {
-                        setTestingId(null);
-                        setTestResult(null);
-                      } else {
-                        setTestingId(candidate.id);
-                        setTestInput('');
-                        setTestResult(null);
-                      }
-                    }}
-                    className="btn-ghost p-2"
-                    title="Test candidate"
-                  >
-                    <Play className="h-4 w-4" />
-                  </button>
-                  <button onClick={() => openEdit(candidate)} className="btn-ghost p-2">
-                    <Edit2 className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(candidate.id)}
-                    className="btn-ghost p-2 hover:text-error"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <span className="badge bg-muted text-muted-foreground">
-                  {candidate.runnerType === 'llm_prompt' ? 'LLM Prompt' : 'HTTP Endpoint'}
-                </span>
-                {candidate.parentId && (
-                  <span className="badge bg-muted text-muted-foreground flex items-center gap-1">
-                    <GitBranch className="h-3 w-3" />
-                    variant
-                  </span>
-                )}
-                {candidate.modelConfig?.provider && (
-                  <span className="badge bg-muted text-muted-foreground">
-                    {candidate.modelConfig.provider}
-                  </span>
-                )}
-                {candidate.modelConfig?.model && (
-                  <span className="badge bg-muted text-muted-foreground">
-                    {candidate.modelConfig.model}
-                  </span>
-                )}
-                {candidate.modelConfig?.temperature !== undefined && (
-                  <span className="badge bg-muted text-muted-foreground">
-                    temp: {candidate.modelConfig.temperature}
-                  </span>
-                )}
-              </div>
-
-              {/* Preview */}
-              {candidate.runnerType === 'llm_prompt' && candidate.userPromptTemplate && (
-                <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded font-mono overflow-hidden">
-                  <span className="opacity-50">Template:</span>{' '}
-                  {candidate.userPromptTemplate.substring(0, 120)}
-                  {candidate.userPromptTemplate.length > 120 && '...'}
-                </div>
-              )}
-
-              {candidate.runnerType === 'http_endpoint' && candidate.endpointUrl && (
-                <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded font-mono">
-                  <span className="opacity-50">{candidate.endpointMethod || 'POST'}</span>{' '}
-                  {candidate.endpointUrl}
-                </div>
-              )}
-
-              {/* Test panel */}
-              {testingId === candidate.id && (
-                <div className="border-t border-border pt-3 space-y-2">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={testInput}
-                      onChange={(e) => setTestInput(e.target.value)}
-                      placeholder="Enter test input..."
-                      className="input flex-1"
-                      onKeyDown={(e) => e.key === 'Enter' && handleTest(candidate)}
-                    />
-                    <button
-                      onClick={() => handleTest(candidate)}
-                      className="btn-primary"
-                      disabled={!testInput.trim()}
-                    >
-                      Run
-                    </button>
-                  </div>
-                  {testResult && (
-                    <div
-                      className={`text-xs p-2 rounded ${testResult.error ? 'bg-red-500/10 text-red-500' : 'bg-muted'}`}
-                    >
-                      {testResult.error ? (
-                        <p>Error: {testResult.error}</p>
-                      ) : (
-                        <>
-                          <p className="font-mono whitespace-pre-wrap">{testResult.output}</p>
-                          <p className="text-muted-foreground mt-1">{testResult.latencyMs}ms</p>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+      <div>
+        <label className="text-sm font-medium block mb-1">Model</label>
+        <select
+          value={form.model}
+          onChange={(e) => setForm({ ...form, model: e.target.value })}
+          className="input"
+        >
+          <option value="">Default ({defaults?.model || models[0]})</option>
+          {models.map((m) => (
+            <option key={m} value={m}>{m}</option>
           ))}
-        </div>
-      )}
-
-      {/* Create/Edit Modal */}
-      {showForm && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="card p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-4">
-            <h2 className="text-lg font-semibold">
-              {editingId ? 'Edit Candidate' : 'New Candidate'}
-            </h2>
-
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">Name</label>
-                <input
-                  type="text"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  placeholder="e.g. Q&A Basic"
-                  className="input w-full mt-1"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium">Description</label>
-                <input
-                  type="text"
-                  value={formDescription}
-                  onChange={(e) => setFormDescription(e.target.value)}
-                  placeholder="What does this candidate do?"
-                  className="input w-full mt-1"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium">Runner Type</label>
-                <div className="flex gap-2 mt-1">
-                  <button
-                    onClick={() => setFormRunnerType('llm_prompt')}
-                    className={`flex-1 p-3 border text-sm font-medium transition-all ${
-                      formRunnerType === 'llm_prompt'
-                        ? 'bg-foreground text-background border-foreground'
-                        : 'border-border hover:border-foreground/50'
-                    }`}
-                    style={{ borderRadius: 'var(--radius)' }}
-                  >
-                    <Bot className="h-4 w-4 mx-auto mb-1" />
-                    LLM Prompt
-                  </button>
-                  <button
-                    onClick={() => setFormRunnerType('http_endpoint')}
-                    className={`flex-1 p-3 border text-sm font-medium transition-all ${
-                      formRunnerType === 'http_endpoint'
-                        ? 'bg-foreground text-background border-foreground'
-                        : 'border-border hover:border-foreground/50'
-                    }`}
-                    style={{ borderRadius: 'var(--radius)' }}
-                  >
-                    <Globe className="h-4 w-4 mx-auto mb-1" />
-                    HTTP Endpoint
-                  </button>
-                </div>
-              </div>
-
-              {/* LLM Prompt fields */}
-              {formRunnerType === 'llm_prompt' && (
-                <>
-                  <div>
-                    <label className="text-sm font-medium">System Prompt</label>
-                    <textarea
-                      value={formSystemPrompt}
-                      onChange={(e) => setFormSystemPrompt(e.target.value)}
-                      placeholder="You are a helpful assistant..."
-                      className="input w-full mt-1 min-h-[80px] resize-y"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">
-                      User Prompt Template
-                      <span className="text-muted-foreground font-normal ml-2">
-                        {'Use {{input}}, {{context}}, {{metadata.*}}'}
-                      </span>
-                    </label>
-                    <textarea
-                      value={formUserTemplate}
-                      onChange={(e) => setFormUserTemplate(e.target.value)}
-                      placeholder={'{{input}}'}
-                      className="input w-full mt-1 min-h-[80px] resize-y font-mono text-sm"
-                    />
-                  </div>
-                  <div className="border border-border p-4 space-y-3" style={{ borderRadius: 'var(--radius)' }}>
-                    <label className="text-sm font-medium">
-                      Model Config
-                      <span className="text-muted-foreground font-normal ml-2">
-                        Override global settings per candidate
-                      </span>
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs text-muted-foreground">Provider</label>
-                        <select
-                          value={formProvider}
-                          onChange={(e) => setFormProvider(e.target.value)}
-                          className="input w-full mt-1"
-                        >
-                          <option value="">(use global default)</option>
-                          <option value="openai">OpenAI</option>
-                          <option value="anthropic">Anthropic</option>
-                          <option value="ollama">Ollama</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground">Model</label>
-                        <input
-                          type="text"
-                          value={formModel}
-                          onChange={(e) => setFormModel(e.target.value)}
-                          placeholder={
-                            formProvider === 'anthropic' ? 'claude-sonnet-4-5-20250929'
-                            : formProvider === 'ollama' ? 'llama3:8b'
-                            : 'gpt-4o-mini'
-                          }
-                          className="input w-full mt-1"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground">Temperature</label>
-                        <input
-                          type="number"
-                          value={formTemperature}
-                          onChange={(e) => setFormTemperature(e.target.value)}
-                          placeholder="0.7"
-                          min="0"
-                          max="2"
-                          step="0.1"
-                          className="input w-full mt-1"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground">Max Tokens</label>
-                        <input
-                          type="number"
-                          value={formMaxTokens}
-                          onChange={(e) => setFormMaxTokens(e.target.value)}
-                          placeholder="1024"
-                          min="1"
-                          className="input w-full mt-1"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted-foreground">API Key (override)</label>
-                      <input
-                        type="password"
-                        value={formApiKey}
-                        onChange={(e) => setFormApiKey(e.target.value)}
-                        placeholder="Leave empty to use global key"
-                        className="input w-full mt-1"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted-foreground">Base URL (override)</label>
-                      <input
-                        type="text"
-                        value={formBaseUrl}
-                        onChange={(e) => setFormBaseUrl(e.target.value)}
-                        placeholder={formProvider === 'ollama' ? 'http://localhost:11434' : 'Leave empty for default'}
-                        className="input w-full mt-1"
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* HTTP Endpoint fields */}
-              {formRunnerType === 'http_endpoint' && (
-                <>
-                  <div>
-                    <label className="text-sm font-medium">Endpoint URL</label>
-                    <input
-                      type="text"
-                      value={formEndpointUrl}
-                      onChange={(e) => setFormEndpointUrl(e.target.value)}
-                      placeholder="http://localhost:8080/api/predict"
-                      className="input w-full mt-1"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Method</label>
-                    <select
-                      value={formEndpointMethod}
-                      onChange={(e) => setFormEndpointMethod(e.target.value)}
-                      className="input w-full mt-1"
-                    >
-                      <option value="POST">POST</option>
-                      <option value="GET">GET</option>
-                      <option value="PUT">PUT</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">
-                      Headers
-                      <span className="text-muted-foreground font-normal ml-2">JSON (optional)</span>
-                    </label>
-                    <textarea
-                      value={formEndpointHeaders}
-                      onChange={(e) => setFormEndpointHeaders(e.target.value)}
-                      placeholder={'{"Authorization": "Bearer ..."}'}
-                      className="input w-full mt-1 min-h-[60px] resize-y font-mono text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">
-                      Body Template
-                      <span className="text-muted-foreground font-normal ml-2">
-                        {'Use {{input}}, {{context}}'}
-                      </span>
-                    </label>
-                    <textarea
-                      value={formEndpointBody}
-                      onChange={(e) => setFormEndpointBody(e.target.value)}
-                      placeholder={'{"input": "{{input}}", "context": "{{context}}"}'}
-                      className="input w-full mt-1 min-h-[80px] resize-y font-mono text-sm"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => {
-                  setShowForm(false);
-                  resetForm();
-                }}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSubmit}
-                className="btn-primary"
-                disabled={!formName.trim()}
-              >
-                {editingId ? 'Save' : 'Create'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        </select>
+      </div>
+      <div>
+        <label className="text-sm font-medium block mb-1">Temperature</label>
+        <select
+          value={form.temperature}
+          onChange={(e) => setForm({ ...form, temperature: e.target.value })}
+          className="input"
+        >
+          <option value="">Default ({defaults?.temperature ?? 0.7})</option>
+          {TEMPERATURE_OPTIONS.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="text-sm font-medium block mb-1">Max Tokens</label>
+        <select
+          value={form.maxTokens}
+          onChange={(e) => setForm({ ...form, maxTokens: e.target.value })}
+          className="input"
+        >
+          <option value="">Default ({defaults?.maxTokens ?? 1024})</option>
+          {MAX_TOKEN_OPTIONS.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }
