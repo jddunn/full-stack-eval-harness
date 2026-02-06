@@ -2,7 +2,11 @@
 
 A lightweight evaluation harness for testing LLM prompts against datasets with configurable graders. Define prompts as markdown files, load datasets from CSV, grade with YAML-configured graders, run experiments, and compare results.
 
-**Frontend**: http://localhost:3020 | **Backend**: http://localhost:3021 | **API Docs**: http://localhost:3021/api/docs
+| Service      | URL                                |
+| ------------ | ---------------------------------- |
+| **Frontend** | `http://localhost:3020`             |
+| **Backend**  | `http://localhost:3021`             |
+| **API Docs** | `http://localhost:3021/api/docs`    |
 
 ---
 
@@ -15,16 +19,13 @@ npm install && npm --prefix backend install && npm --prefix frontend install
 # Dev (both services, hot reload)
 npm run dev
 
+# Build
+npm run build-all              # backend + frontend
+npm --prefix backend run build # backend only
+npm --prefix frontend run build # frontend only
+
 # Production
 npm run build-all && npm run start-all
-```
-
-Or with PM2:
-
-```bash
-npm run build-all
-pm2 start dist/src/main.js --name evals-backend --cwd backend
-pm2 start "npx next start -p 3020" --name evals-frontend --cwd frontend
 ```
 
 ### Scripts

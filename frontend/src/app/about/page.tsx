@@ -825,9 +825,8 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
       <section>
         <h2 className="section-title">Grader Deep Dive</h2>
         <p className="section-subtitle">
-          Each grader implements a different evaluation paradigm &mdash; from deterministic string
-          matching to LLM-powered judgment. Here&apos;s the theory, implementation, and rationale
-          behind each one.
+          Each grader implements a different evaluation paradigm. Here&apos;s the theory,
+          implementation, and rationale behind each one.
         </p>
 
         <div className="mt-8 space-y-6">
@@ -837,82 +836,34 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               <span className="bg-foreground text-background px-2 py-0.5 text-xs font-bold">
                 PROMPTFOO
               </span>
-              <h3 className="font-bold text-lg uppercase tracking-wide">
-                Faithfulness (RAGAS Context-Faithfulness)
-              </h3>
+              <h3 className="font-bold text-lg uppercase tracking-wide">Faithfulness</h3>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">
-              YAML: <code>faithfulness.yaml</code> &middot; Type:{' '}
-              <code>context-faithfulness</code> &middot; Default threshold: 0.8
+            <p className="text-xs text-muted-foreground mb-3">
+              <code>context-faithfulness</code> &middot; Threshold: 0.8
             </p>
-
             <p className="text-muted-foreground leading-relaxed">
-              <strong>What it measures:</strong> Whether every factual claim in the LLM&apos;s
-              output is supported by the provided context. This is the primary hallucination
-              detection metric &mdash; if the model makes something up that isn&apos;t in the source
-              material, faithfulness catches it.
+              Detects hallucination by checking whether every claim in the output is supported by
+              the provided context. Based on the RAGAS framework (Es et al., 2023) which
+              decomposes output into <strong>atomic claims</strong> and verifies each via{' '}
+              <strong>Natural Language Inference</strong> &mdash; classifying claims as entailed,
+              contradicted, or neutral. Score = fraction of supported claims.
             </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Theory:</strong> The RAGAS framework (Es et al., 2023) introduced a two-step
-              approach to measuring faithfulness. First, the output is decomposed into{' '}
-              <strong>atomic claims</strong> &mdash; individual factual statements that can be
-              independently verified. For example, &ldquo;The company, founded in 2015 by Jane
-              Smith, reported $10M revenue&rdquo; becomes three claims: (1) the company was founded
-              in 2015, (2) it was founded by Jane Smith, (3) it reported $10M revenue. Second, each
-              claim is checked against the context using{' '}
-              <strong>Natural Language Inference (NLI)</strong> &mdash; classifying each claim as{' '}
-              <em>entailed</em> (supported), <em>contradicted</em>, or <em>neutral</em> (not
-              mentioned). The final score is the fraction of claims that are entailed. A score of
-              0.8 means 80% of claims are grounded in the source.
+            <p className="text-muted-foreground leading-relaxed mt-2">
+              <strong>Implementation:</strong> <code>PromptfooGrader</code> calls{' '}
+              <code>assertions.runAssertion()</code> with <code>vars.context</code> from the
+              dataset. Promptfoo handles claim extraction and NLI using your configured LLM.
             </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Our implementation:</strong> We use promptfoo&apos;s{' '}
-              <code>context-faithfulness</code> assertion via our <code>PromptfooGrader</code>{' '}
-              class. The grader calls <code>assertions.runAssertion()</code> directly (bypassing
-              promptfoo&apos;s <code>evaluate()</code> API), passing the LLM output as{' '}
-              <code>providerResponse.output</code> and the source context as{' '}
-              <code>vars.context</code>. Promptfoo internally handles claim extraction and NLI
-              verification using your configured LLM provider (OpenAI, Anthropic, or Ollama via
-              Settings).
+            <p className="text-muted-foreground leading-relaxed mt-2">
+              <strong>Why:</strong> Core failure mode of RAG systems. Promptfoo&apos;s MIT-licensed
+              implementation saves us from building claim extraction + NLI from scratch.
             </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Why we chose it:</strong> Hallucination is the core failure mode of RAG
-              systems and any task involving source material. Building the claim extraction + NLI
-              pipeline from scratch would be significant engineering. Promptfoo implements RAGAS
-              faithfulness as a battle-tested MIT-licensed assertion type, saving us from
-              reimplementing the paper&apos;s methodology while keeping full control over the
-              threshold and which LLM performs the checking.
-            </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>When to use:</strong> Any task where the output should be grounded in source
-              material &mdash; Q&amp;A over documents, summarization, RAG pipelines, fact
-              extraction. Essential when accuracy matters more than creativity. Pair with
-              semantic similarity to catch both hallucination (faithfulness) and meaning drift
-              (similarity).
-            </p>
-
-            <p className="text-xs text-muted-foreground mt-3">
-              Paper:{' '}
-              <a
-                href="https://arxiv.org/abs/2309.15217"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link"
-              >
-                RAGAS: Automated Evaluation of Retrieval Augmented Generation (Es et al., 2023)
+            <p className="text-xs text-muted-foreground mt-2">
+              <a href="https://arxiv.org/abs/2309.15217" target="_blank" rel="noopener noreferrer" className="link">
+                RAGAS (Es et al., 2023)
               </a>{' '}
-              &middot; Implementation:{' '}
-              <a
-                href="https://promptfoo.dev/docs/configuration/expected-outputs/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link"
-              >
-                promptfoo assertion engine
+              &middot;{' '}
+              <a href="https://promptfoo.dev" target="_blank" rel="noopener noreferrer" className="link">
+                promptfoo
               </a>
             </p>
           </div>
@@ -925,95 +876,30 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               </span>
               <h3 className="font-bold text-lg uppercase tracking-wide">Semantic Similarity</h3>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">
-              YAML: <code>semantic-similarity.yaml</code> &middot; Type:{' '}
-              <code>semantic-similarity</code> &middot; Default threshold: 0.8 &middot; Metrics:
-              cosine, euclidean, dot product
+            <p className="text-xs text-muted-foreground mb-3">
+              <code>semantic-similarity</code> &middot; Threshold: 0.8 &middot; Metrics: cosine,
+              euclidean, dot product
             </p>
-
             <p className="text-muted-foreground leading-relaxed">
-              <strong>What it measures:</strong> Whether the output means the same thing as the
-              expected answer, even if the wording is completely different. Captures paraphrases,
-              synonyms, and structural rearrangements that string matching would miss.
+              Measures whether output means the same thing as the expected answer, regardless of
+              wording. Based on Sentence-BERT (Reimers &amp; Gurevych, 2019) &mdash; transformer
+              models fine-tuned with siamese networks produce embeddings where semantic similarity =
+              cosine distance. Same meaning, different words &rarr; vectors point the same direction.
             </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Theory:</strong> Sentence-BERT (Reimers &amp; Gurevych, 2019) showed that
-              BERT-style models fine-tuned with siamese and triplet networks produce sentence
-              embeddings where semantic similarity corresponds to cosine distance. Two sentences with
-              the same meaning but different wording will have embedding vectors pointing in nearly
-              the same direction, yielding a high cosine similarity score (close to 1.0). This built
-              on earlier work in distributional semantics &mdash; the idea that words appearing in
-              similar contexts have similar meanings (Firth, 1957; Mikolov et al., 2013). Modern
-              embedding models like OpenAI&apos;s <code>text-embedding-3-small</code> extend this
-              from words to entire passages, encoding meaning into 1536-dimensional vectors.
+            <p className="text-muted-foreground leading-relaxed mt-2">
+              <strong>Implementation:</strong> Three-tier fallback: (1) embedding cosine similarity
+              via <code>LlmService.embed()</code> (OpenAI <code>text-embedding-3-small</code> or
+              Ollama), (2) Jaccard + weighted token overlap if embeddings fail, (3) configurable
+              hybrid mode combining both. Also supports euclidean and dot product metrics.
             </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Our implementation:</strong> The <code>SemanticSimilarityGrader</code> uses a
-              three-tier fallback strategy:
+            <p className="text-muted-foreground leading-relaxed mt-2">
+              <strong>Why:</strong> Meaning-aware scoring without LLM variability. Deterministic
+              given the same embedding model. Middle ground between brittle string matching and
+              expensive LLM-as-judge.
             </p>
-            <ol className="mt-2 space-y-1 text-sm text-muted-foreground">
-              <li>
-                <strong>1. Embedding similarity (primary):</strong> Both texts are embedded via{' '}
-                <code>LlmService.embed()</code> using OpenAI <code>text-embedding-3-small</code>,
-                Anthropic, or Ollama&apos;s native embeddings. Cosine similarity is computed directly
-                on the vectors: <code>dot(a,b) / (||a|| * ||b||)</code>, normalized to [0,1].
-              </li>
-              <li>
-                <strong>2. Text overlap (fallback):</strong> If embeddings fail (no API key, model
-                unavailable), falls back to a weighted combination of Jaccard similarity (set
-                intersection over union of tokens) and TF-IDF-style weighted token overlap.
-                Stop words are filtered out so common words don&apos;t inflate scores.
-              </li>
-              <li>
-                <strong>3. Hybrid mode (configurable):</strong> Combines both scores:{' '}
-                <code>0.7 * embedding + 0.3 * text_overlap</code>. Useful when you want
-                embedding-level meaning comparison with a text-level sanity check.
-              </li>
-            </ol>
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              Also supports <strong>euclidean distance</strong> (converted to similarity via{' '}
-              <code>e^(-distance)</code>) and <strong>dot product</strong> similarity for normalized
-              vectors, configurable via the <code>metric</code> YAML field.
-            </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Why we chose it:</strong> Embeddings give a meaning-aware score without the
-              variability and cost of an LLM judge. Given the same embedding model, the score is
-              perfectly deterministic &mdash; same inputs always produce the same score. It&apos;s
-              the middle ground between exact string matching (too brittle) and LLM-as-judge (too
-              expensive and non-deterministic). The fallback strategy ensures the grader works even
-              without API access.
-            </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>When to use:</strong> Tasks with a known correct answer where phrasing
-              shouldn&apos;t matter &mdash; factual Q&amp;A, summarization (is the meaning
-              preserved?), translation equivalence, or checking that rewrites preserve meaning. Less
-              useful for creative tasks where many valid answers exist or when the expected output is
-              unavailable.
-            </p>
-
-            <p className="text-xs text-muted-foreground mt-3">
-              Paper:{' '}
-              <a
-                href="https://arxiv.org/abs/1908.10084"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link"
-              >
-                Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks (Reimers &amp;
-                Gurevych, 2019)
-              </a>{' '}
-              &middot; Embedding model:{' '}
-              <a
-                href="https://platform.openai.com/docs/guides/embeddings"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link"
-              >
-                OpenAI text-embedding-3-small
+            <p className="text-xs text-muted-foreground mt-2">
+              <a href="https://arxiv.org/abs/1908.10084" target="_blank" rel="noopener noreferrer" className="link">
+                Sentence-BERT (Reimers &amp; Gurevych, 2019)
               </a>
             </p>
           </div>
@@ -1026,88 +912,35 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               </span>
               <h3 className="font-bold text-lg uppercase tracking-wide">LLM-as-Judge</h3>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">
-              YAML: <code>llm-judge-helpful.yaml</code>,{' '}
-              <code>extraction-completeness.yaml</code> &middot; Type: <code>llm-judge</code>{' '}
-              &middot; Configurable rubric per grader
+            <p className="text-xs text-muted-foreground mb-3">
+              <code>llm-judge</code> &middot; Configurable rubric per grader &middot; Temperature:
+              0.1
             </p>
-
             <p className="text-muted-foreground leading-relaxed">
-              <strong>What it measures:</strong> Open-ended quality assessment against a
-              human-written rubric. The most flexible grader &mdash; evaluate anything you can
-              describe in natural language.
+              Open-ended quality assessment against a human-written rubric. Zheng et al. (2023)
+              showed GPT-4-class models achieve &gt;80% agreement with human expert ratings when
+              given structured criteria &mdash; comparable to inter-annotator agreement. Low
+              temperature and explicit pass/fail rubrics reduce position and verbosity bias.
             </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Theory:</strong> Zheng et al. (2023) demonstrated in &ldquo;Judging
-              LLM-as-a-Judge with MT-Bench and Chatbot Arena&rdquo; that strong LLMs can
-              approximate human judgment when given clear evaluation criteria. Their key findings:
-              (1) GPT-4-class models achieve &gt;80% agreement with human expert ratings, comparable
-              to inter-annotator agreement between humans; (2) position bias (preferring the first
-              answer in pairwise comparisons) and verbosity bias (preferring longer answers) are real
-              but manageable with careful prompt design; (3) using a structured rubric with explicit
-              pass/fail criteria significantly improves consistency over open-ended &ldquo;rate this
-              answer&rdquo; prompts. Low temperature (0.1&ndash;0.3) further reduces variability.
+            <p className="text-muted-foreground leading-relaxed mt-2">
+              <strong>Implementation:</strong> <code>LlmJudgeGrader</code> sends
+              input/output/expected/rubric to the configured LLM, requesting JSON{' '}
+              <code>{`{pass, score, reason}`}</code> at temperature 0.1. Fallback parser handles
+              malformed responses. Optional <code>threshold</code> config for numeric score cutoff.
             </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Our implementation:</strong> The <code>LlmJudgeGrader</code> constructs a
-              structured evaluation prompt containing the input, output, expected output (if
-              available), and the rubric from the grader&apos;s YAML config. A system prompt
-              constrains the response format to JSON: <code>{`{pass, score, reason}`}</code>.
-              Temperature is set to 0.1 for maximum consistency. The response parser extracts the
-              JSON object; if the model returns malformed output, a fallback parser looks for
-              &ldquo;pass&rdquo;/&ldquo;fail&rdquo; keywords and assigns a conservative score. An
-              optional <code>threshold</code> config overrides the model&apos;s binary pass/fail
-              with a numeric cutoff on the score.
+            <p className="text-muted-foreground leading-relaxed mt-2">
+              <strong>Shipped rubrics:</strong> <em>Helpfulness</em> (accuracy, clarity,
+              relevance) and <em>Extraction Completeness</em> (4-criteria: completeness, accuracy,
+              grounding, structure).
             </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Shipped rubrics:</strong>
+            <p className="text-muted-foreground leading-relaxed mt-2">
+              <strong>Why:</strong> Some dimensions (helpfulness, tone, completeness) can&apos;t be
+              captured by pattern matching or embeddings. Trade-off: costs an LLM call per eval,
+              non-deterministic. Mitigated with low temperature and structured output.
             </p>
-            <ul className="list-brutal mt-2 text-sm text-muted-foreground">
-              <li>
-                <strong>Helpfulness Judge</strong> &mdash; Evaluates whether the response directly
-                answers the question, is factually accurate, clear, and well-structured. Fails on
-                off-topic, factual errors, or confusing responses. General-purpose quality metric.
-              </li>
-              <li>
-                <strong>Extraction Completeness Judge</strong> &mdash; Domain-specific rubric for
-                JSON extraction tasks. Evaluates four criteria: (1) completeness (all fields
-                populated?), (2) accuracy (values match source?), (3) grounding (null for fields
-                without evidence?), (4) structure (valid JSON matching schema?). Fails if key data
-                is missing or fabricated.
-              </li>
-            </ul>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Why we chose it:</strong> Some quality dimensions &mdash; helpfulness, tone,
-              completeness, whether an answer actually addresses the question &mdash; can&apos;t be
-              captured by pattern matching or embeddings. LLM-as-judge is the only approach flexible
-              enough to evaluate subjective criteria defined in natural language. The trade-off is
-              cost (one LLM call per evaluation) and non-determinism (different models may give
-              different scores). We mitigate non-determinism with low temperature and structured
-              output, and recommend using it alongside deterministic graders as a reliability
-              baseline.
-            </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>When to use:</strong> Subjective qualities (helpfulness, tone, completeness),
-              domain-specific criteria (extraction quality, medical accuracy), or any evaluation
-              where the rubric is too complex for pattern matching. Best paired with deterministic
-              graders &mdash; let contains/schema catch structural failures cheaply, then use the
-              LLM judge for nuanced assessment.
-            </p>
-
-            <p className="text-xs text-muted-foreground mt-3">
-              Paper:{' '}
-              <a
-                href="https://arxiv.org/abs/2306.05685"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link"
-              >
-                Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena (Zheng et al., 2023)
+            <p className="text-xs text-muted-foreground mt-2">
+              <a href="https://arxiv.org/abs/2306.05685" target="_blank" rel="noopener noreferrer" className="link">
+                LLM-as-Judge (Zheng et al., 2023)
               </a>
             </p>
           </div>
@@ -1120,90 +953,33 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               </span>
               <h3 className="font-bold text-lg uppercase tracking-wide">JSON Schema Validation</h3>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">
-              YAML: <code>extraction-schema.yaml</code> &middot; Type: <code>json-schema</code>{' '}
-              &middot; Binary pass/fail &middot; Zero LLM cost
+            <p className="text-xs text-muted-foreground mb-3">
+              <code>json-schema</code> &middot; Binary pass/fail &middot; Zero LLM cost
             </p>
-
             <p className="text-muted-foreground leading-relaxed">
-              <strong>What it measures:</strong> Whether the output is syntactically valid JSON that
-              conforms to a defined schema &mdash; required fields present, correct types, valid
-              array structures, no unexpected types.
-            </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Theory:</strong> JSON Schema (IETF, Wright et al.) is a declarative language
-              for describing the structure of JSON data. It&apos;s the standard approach for
-              validating structured outputs in function-calling benchmarks, structured output
-              evaluations, and API contract testing. The specification defines vocabulary for type
-              constraints (<code>string</code>, <code>number</code>, <code>array</code>,{' '}
-              <code>object</code>), required fields, nested object structures, and format
-              validation. For LLM evaluation, schema validation is the first-pass gate: if the model
+              Validates output against a JSON Schema definition &mdash; required fields, correct
+              types, valid structure. The first-pass gate for extraction tasks: if the model
               can&apos;t produce structurally valid output, content quality is irrelevant.
             </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Our implementation:</strong> The <code>JsonSchemaGrader</code> uses{' '}
-              <a
-                href="https://ajv.js.org/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link"
-              >
-                AJV (Another JSON Validator)
+            <p className="text-muted-foreground leading-relaxed mt-2">
+              <strong>Implementation:</strong> <code>JsonSchemaGrader</code> uses{' '}
+              <a href="https://ajv.js.org/" target="_blank" rel="noopener noreferrer" className="link">
+                AJV
               </a>{' '}
-              &mdash; the fastest JSON Schema validator for JavaScript. It parses the LLM output as
-              JSON, compiles the schema from the grader&apos;s YAML config, and runs full
-              validation. All errors are collected (<code>allErrors: true</code>) and up to 5
-              specific violations are reported (e.g., &ldquo;/authors: must be array&rdquo;). A{' '}
-              <code>strictMode</code> option enables AJV&apos;s strict schema validation for
-              tighter checks. Completely deterministic &mdash; no LLM calls, no embeddings, no
-              network requests. Instant and free.
+              (fastest JS JSON Schema validator). Parses output as JSON, validates against schema
+              from YAML config, reports up to 5 specific violations. Deterministic, instant, free.
             </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Shipped schema:</strong> The <code>extraction-schema.yaml</code> defines the
-              paper extraction schema requiring <code>title</code>, <code>authors</code>,{' '}
-              <code>keyFindings</code>, and <code>keywords</code> fields with correct types. Arrays
-              for multi-value fields (authors, findings, keywords, limitations), nullable strings for
-              optional fields (publicationDate, abstract, methodology), and nullable number for
-              citation count. Tests whether the JSON extractor candidates produce structurally valid
-              output.
+            <p className="text-muted-foreground leading-relaxed mt-2">
+              <strong>Shipped schema:</strong> Paper extraction &mdash; requires{' '}
+              <code>title</code>, <code>authors</code>, <code>keyFindings</code>,{' '}
+              <code>keywords</code> with correct types. Nullable fields for optional data.
             </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Why we chose it:</strong> Structured extraction tasks need a structural
-              validation gate before content evaluation. Schema validation is zero-cost, instant, and
-              deterministic &mdash; the perfect first-pass check. If the model can&apos;t produce
-              valid JSON with required fields, there&apos;s no point running expensive LLM graders
-              on the output. AJV is the de facto standard JSON Schema validator in the JavaScript
-              ecosystem (99M+ weekly npm downloads).
-            </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>When to use:</strong> Any structured extraction or function-calling task.
-              Pair with an LLM-as-judge grader: schema validates the <em>structure</em> (are the
-              right fields present?), the judge validates the <em>content</em> (are the values
-              correct?).
-            </p>
-
-            <p className="text-xs text-muted-foreground mt-3">
-              Spec:{' '}
-              <a
-                href="https://json-schema.org/specification"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link"
-              >
-                JSON Schema specification
+            <p className="text-xs text-muted-foreground mt-2">
+              <a href="https://json-schema.org/specification" target="_blank" rel="noopener noreferrer" className="link">
+                JSON Schema spec
               </a>{' '}
-              &middot; Validator:{' '}
-              <a
-                href="https://ajv.js.org/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link"
-              >
+              &middot;{' '}
+              <a href="https://ajv.js.org/" target="_blank" rel="noopener noreferrer" className="link">
                 AJV
               </a>
             </p>
@@ -1215,113 +991,38 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               <span className="bg-foreground text-background px-2 py-0.5 text-xs font-bold">
                 BUILT-IN
               </span>
-              <h3 className="font-bold text-lg uppercase tracking-wide">
-                Deterministic Graders
-              </h3>
+              <h3 className="font-bold text-lg uppercase tracking-wide">Deterministic Graders</h3>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">
-              Types: <code>exact-match</code>, <code>contains</code>, <code>regex</code> &middot;
-              Zero LLM cost &middot; Binary or proportional scoring
+            <p className="text-xs text-muted-foreground mb-3">
+              <code>exact-match</code>, <code>contains</code>, <code>regex</code> &middot; Zero
+              cost, instant, reproducible
             </p>
-
-            <p className="text-muted-foreground leading-relaxed">
-              The simplest evaluation strategies &mdash; no LLM calls, no embeddings, no network
-              requests. Zero cost, instant, and perfectly reproducible. These form the foundation
-              layer of any grading strategy.
-            </p>
-
-            <div className="mt-4 space-y-4">
-              <div className="bg-muted/30 rounded p-3">
-                <strong className="text-sm">Exact Match</strong>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <strong>Theory:</strong> Direct string equality. The original evaluation metric
-                  from the SQuAD reading comprehension benchmark (Rajpurkar et al., 2016), where
-                  it&apos;s paired with token-level F1 score. The idea: for tasks with a single
-                  correct answer, string comparison is the gold standard &mdash; no ambiguity, no
-                  judgment calls.
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <strong>Implementation:</strong> Normalizes both strings (configurable case
-                  sensitivity and whitespace trimming), then checks equality. Binary 0/1 scoring.
-                  Reports the first 50 characters of mismatch for debugging.
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <strong>Best for:</strong> Classification, short-answer, multiple-choice, or any
-                  task with a single canonical correct answer.
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Origin:{' '}
-                  <a
-                    href="https://arxiv.org/abs/1606.05250"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="link"
-                  >
-                    SQuAD (Rajpurkar et al., 2016)
-                  </a>
-                </p>
-              </div>
-
-              <div className="bg-muted/30 rounded p-3">
-                <strong className="text-sm">Contains</strong>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <strong>Theory:</strong> Substring presence checking. Inspired by the HELM
-                  benchmark (Liang et al., 2022) which uses keyword presence as a lightweight
-                  evaluation signal. The insight: for many tasks, you don&apos;t care about the full
-                  output &mdash; you just need to verify that specific facts, entities, or keywords
-                  appear somewhere in it.
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <strong>Implementation:</strong> Takes a list of required substrings. Two modes:{' '}
-                  <code>all</code> (every string must appear) or <code>any</code> (at least one).
-                  Scoring is proportional: 3 out of 5 strings found = 0.6 score. Case-insensitive
-                  by default. Reports which specific strings are missing.
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <strong>Best for:</strong> Verifying that key facts, entity names, or required
-                  phrases appear in the output without constraining overall format or wording.
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Origin:{' '}
-                  <a
-                    href="https://arxiv.org/abs/2211.09110"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="link"
-                  >
-                    HELM (Liang et al., 2022)
-                  </a>
-                </p>
-              </div>
-
-              <div className="bg-muted/30 rounded p-3">
-                <strong className="text-sm">Regex</strong>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <strong>Theory:</strong> Regular expression pattern matching &mdash; the most
-                  general deterministic check. Common in format validation benchmarks and structured
-                  output evaluation. Regular expressions can verify dates, IDs, email addresses,
-                  numeric ranges, or any pattern with a formal grammar.
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <strong>Implementation:</strong> Compiles the pattern from YAML config with
-                  optional flags (<code>i</code> for case-insensitive, <code>g</code> for global,{' '}
-                  <code>m</code> for multiline). Binary pass/fail. Reports the pattern in the
-                  reason for debugging. Catches invalid regex patterns gracefully.
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <strong>Best for:</strong> Format validation (dates, phone numbers, structured
-                  IDs), verifying output follows a required pattern, or extracting specific fields
-                  from free-text output.
-                </p>
-              </div>
-            </div>
-
-            <p className="text-muted-foreground leading-relaxed mt-4">
-              <strong>Why deterministic graders matter:</strong> They form the base layer of a
-              grading stack. Run these first &mdash; they&apos;re free and instant. If the output
-              doesn&apos;t contain a required keyword or match a format pattern, there&apos;s no
-              point spending LLM tokens on a nuanced quality assessment. Think of them as assertions
-              in a test suite: they catch obvious failures before the expensive checks run.
+            <ul className="list-brutal text-muted-foreground text-sm">
+              <li>
+                <strong>Exact Match</strong> &mdash; String equality with configurable case/whitespace.
+                From{' '}
+                <a href="https://arxiv.org/abs/1606.05250" target="_blank" rel="noopener noreferrer" className="link">
+                  SQuAD (Rajpurkar et al., 2016)
+                </a>
+                . Binary 0/1. Best for classification and short-answer.
+              </li>
+              <li>
+                <strong>Contains</strong> &mdash; Substring presence with <code>all</code>/<code>any</code>{' '}
+                mode. Proportional scoring (3/5 found = 0.6). Inspired by{' '}
+                <a href="https://arxiv.org/abs/2211.09110" target="_blank" rel="noopener noreferrer" className="link">
+                  HELM (Liang et al., 2022)
+                </a>
+                . Best for keyword/fact verification.
+              </li>
+              <li>
+                <strong>Regex</strong> &mdash; Pattern matching with configurable flags. Binary
+                pass/fail. Best for format validation (dates, IDs, structured patterns).
+              </li>
+            </ul>
+            <p className="text-muted-foreground leading-relaxed mt-3 text-sm">
+              These form the base layer of any grading stack. Run them first &mdash; if the output
+              doesn&apos;t match a format or contain required keywords, skip the expensive LLM
+              graders.
             </p>
           </div>
 
@@ -1331,50 +1032,27 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               <span className="bg-foreground text-background px-2 py-0.5 text-xs font-bold">
                 ENGINE
               </span>
-              <h3 className="font-bold text-lg uppercase tracking-wide">
-                Promptfoo Assertion Engine
-              </h3>
+              <h3 className="font-bold text-lg uppercase tracking-wide">Promptfoo Assertion Engine</h3>
             </div>
-            <p className="text-xs text-muted-foreground mb-4">
-              Type: <code>promptfoo</code> &middot; 20+ assertion types via YAML config &middot;
-              MIT licensed
+            <p className="text-xs text-muted-foreground mb-3">
+              <code>promptfoo</code> grader type &middot; 20+ assertions via YAML &middot; MIT
+              licensed
             </p>
-
             <p className="text-muted-foreground leading-relaxed">
-              <strong>What it is:</strong> A pass-through to{' '}
-              <a
-                href="https://promptfoo.dev"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link"
-              >
+              Pass-through to{' '}
+              <a href="https://promptfoo.dev" target="_blank" rel="noopener noreferrer" className="link">
                 promptfoo
               </a>
-              &apos;s assertion engine. One grader type, many evaluation strategies &mdash; change
-              the <code>config.assertion</code> field in a YAML file to switch between RAGAS
-              metrics, NLP scores, LLM rubrics, safety checks, and more. No code changes needed.
+              &apos;s assertion engine. Change <code>config.assertion</code> in a YAML file to
+              switch between RAGAS metrics, NLP scores, LLM rubrics, safety checks. No code changes.
             </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Our implementation:</strong> The <code>PromptfooGrader</code> class wraps
-              promptfoo&apos;s <code>assertions.runAssertion()</code> function. It reads your LLM
-              provider config from Settings, sets up API keys, builds the assertion object from YAML
-              config, and passes the full evaluation context (input, output, context, expected). The
-              provider config maps to promptfoo&apos;s format:{' '}
-              <code>openai:gpt-4.1</code>, <code>anthropic:messages:claude-sonnet-4-5-20250929</code>,
-              or <code>ollama:llama3</code>.
-            </p>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Available assertion types</strong> (add any via YAML):
-            </p>
-            <div className="mt-2 overflow-x-auto">
+            <div className="mt-3 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-left text-muted-foreground border-b border-border">
                     <th className="pb-2 pr-3">Category</th>
                     <th className="pb-2 pr-3">Assertions</th>
-                    <th className="pb-2">What they evaluate</th>
+                    <th className="pb-2">Use case</th>
                   </tr>
                 </thead>
                 <tbody className="text-muted-foreground">
@@ -1384,53 +1062,35 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
                       <code>context-faithfulness</code>, <code>answer-relevance</code>,{' '}
                       <code>context-relevance</code>, <code>context-recall</code>
                     </td>
-                    <td className="py-1.5">
-                      RAG pipeline quality &mdash; hallucination, relevance, retrieval
-                    </td>
+                    <td className="py-1.5">RAG quality &mdash; hallucination, relevance</td>
                   </tr>
                   <tr className="border-b border-border/50">
                     <td className="py-1.5 pr-3 font-medium text-foreground">LLM-as-Judge</td>
                     <td className="py-1.5 pr-3">
                       <code>llm-rubric</code>, <code>g-eval</code>, <code>factuality</code>
                     </td>
-                    <td className="py-1.5">
-                      Custom rubric scoring, chain-of-thought eval, fact-checking
-                    </td>
+                    <td className="py-1.5">Custom rubrics, chain-of-thought eval</td>
                   </tr>
                   <tr className="border-b border-border/50">
-                    <td className="py-1.5 pr-3 font-medium text-foreground">NLP Metrics</td>
+                    <td className="py-1.5 pr-3 font-medium text-foreground">NLP</td>
                     <td className="py-1.5 pr-3">
                       <code>rouge-n</code>, <code>bleu</code>, <code>levenshtein</code>
                     </td>
-                    <td className="py-1.5">
-                      Traditional text overlap, translation quality, edit distance
-                    </td>
-                  </tr>
-                  <tr className="border-b border-border/50">
-                    <td className="py-1.5 pr-3 font-medium text-foreground">Semantic</td>
-                    <td className="py-1.5 pr-3">
-                      <code>similar</code>, <code>classifier</code>
-                    </td>
-                    <td className="py-1.5">Embedding similarity, ML classification</td>
+                    <td className="py-1.5">Text overlap, edit distance</td>
                   </tr>
                   <tr>
                     <td className="py-1.5 pr-3 font-medium text-foreground">Safety</td>
                     <td className="py-1.5 pr-3">
                       <code>is-refusal</code>, <code>guardrails</code>
                     </td>
-                    <td className="py-1.5">Refusal detection, harmful content screening</td>
+                    <td className="py-1.5">Refusal detection, harmful content</td>
                   </tr>
                 </tbody>
               </table>
             </div>
-
-            <p className="text-muted-foreground leading-relaxed mt-3">
-              <strong>Why we chose it:</strong> Implementing each evaluation paradigm from scratch
-              (claim extraction + NLI for faithfulness, BLEU&apos;s modified precision with brevity
-              penalty, ROUGE&apos;s recall-oriented n-gram overlap) would be months of engineering.
-              Promptfoo is MIT-licensed, battle-tested, and provides a unified assertion API. One
-              integration gives us access to the full evaluation landscape. Adding a new metric is a
-              YAML file, not a code change.
+            <p className="text-muted-foreground leading-relaxed mt-3 text-sm">
+              <strong>Why:</strong> One integration gives us the full evaluation landscape. Adding
+              a new metric is a YAML file, not a code change.
             </p>
           </div>
 
@@ -1440,34 +1100,27 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               Choosing the Right Graders
             </h3>
             <p className="text-muted-foreground leading-relaxed">
-              Layer graders from cheap/fast to expensive/nuanced &mdash; each layer catches a
-              different class of failure:
+              Layer from cheap/fast to expensive/nuanced:
             </p>
-            <ol className="mt-4 space-y-3 text-muted-foreground text-sm">
+            <ol className="mt-3 space-y-2 text-muted-foreground text-sm">
               <li>
                 <strong>1. Deterministic first.</strong> Exact match, contains, regex, JSON schema.
-                Free, instant, deterministic. Catches structural and format failures. If the
-                output isn&apos;t valid JSON, stop here &mdash; no need for an LLM call.
+                Free, instant. Catches structural failures.
               </li>
               <li>
-                <strong>2. Embeddings next.</strong> Semantic similarity gives a meaning-aware score
-                without the variability of an LLM judge. Deterministic given the same embedding
-                model. Catches meaning drift that string matching would miss.
+                <strong>2. Embeddings next.</strong> Semantic similarity &mdash; meaning-aware,
+                deterministic, no LLM variability.
               </li>
               <li>
-                <strong>3. LLM-powered last.</strong> Faithfulness for hallucination detection,
-                LLM-as-Judge for nuanced quality assessment. Most powerful but costs an LLM call per
-                evaluation and introduces variability. Use structured prompts and low temperature
-                to mitigate.
+                <strong>3. LLM-powered last.</strong> Faithfulness + LLM-as-Judge. Most powerful
+                but costs an LLM call per eval.
               </li>
             </ol>
-            <p className="text-muted-foreground leading-relaxed mt-4">
-              Each prompt in this harness declares its own grader weights via{' '}
-              <code>recommended_graders</code> with a <code>grader_rationale</code> explaining
-              why. A Q&amp;A prompt might weight faithfulness at 60% (grounding matters most); a
-              JSON extractor might weight schema at 40% and completeness at 40% (structure and
-              coverage equally important); a summarizer might balance all three (helpfulness,
-              similarity, faithfulness) to catch different failure modes.
+            <p className="text-muted-foreground leading-relaxed mt-3 text-sm">
+              Each prompt declares its own grader weights via <code>recommended_graders</code>{' '}
+              with a <code>grader_rationale</code>. A Q&amp;A prompt weights faithfulness at 60%;
+              an extractor weights schema + completeness at 40% each; a summarizer balances all
+              three.
             </p>
           </div>
         </div>
