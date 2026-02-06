@@ -5,15 +5,15 @@ import { Settings, Zap, RefreshCw, Check, X, Loader2 } from 'lucide-react';
 import { settingsApi, LlmSettings, ConnectionTestResult } from '@/lib/api';
 
 const PROVIDERS = [
+  { id: 'openai', name: 'OpenAI', description: 'GPT-4.1, GPT-4o, o3 reasoning models' },
+  { id: 'anthropic', name: 'Anthropic', description: 'Claude Opus, Sonnet, Haiku models' },
   { id: 'ollama', name: 'Ollama (Local)', description: 'Run models locally with Ollama' },
-  { id: 'openai', name: 'OpenAI', description: 'GPT-4, GPT-3.5, and embedding models' },
-  { id: 'anthropic', name: 'Anthropic', description: 'Claude models' },
 ] as const;
 
 const DEFAULT_MODELS: Record<string, string[]> = {
-  ollama: ['dolphin-llama3:8b', 'llama3:8b', 'mistral:7b', 'codellama:7b'],
-  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
-  anthropic: ['claude-3-haiku-20240307', 'claude-3-sonnet-20240229', 'claude-3-opus-20240229'],
+  openai: ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'gpt-4o-mini', 'o3', 'o4-mini', 'o3-mini', 'o1'],
+  anthropic: ['claude-opus-4-6', 'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001', 'claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-haiku-20240307'],
+  ollama: ['dolphin-llama3:8b', 'llama3.2:3b', 'llama3:8b', 'mistral', 'codellama', 'gemma:7b', 'phi3'],
 };
 
 export default function SettingsPage() {

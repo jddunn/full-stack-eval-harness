@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Sun, Moon, Database, Gauge, Bot, FlaskConical,
-  Info, Settings, BarChart3, ChevronDown, ExternalLink, BookOpen, Github,
+  Info, Settings, ChevronDown, ExternalLink, BookOpen, Github,
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 
@@ -14,8 +14,6 @@ const tabs = [
   { name: 'Graders', href: '/graders', icon: Gauge },
   { name: 'Candidates', href: '/candidates', icon: Bot },
   { name: 'Experiments', href: '/experiments', icon: FlaskConical },
-  { name: 'Stats', href: '/stats', icon: BarChart3 },
-  { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3021/api';
@@ -101,6 +99,15 @@ export function Navigation() {
                     Repository
                     <ExternalLink className="h-3 w-3 ml-auto" />
                   </a>
+                  <div className="border-t border-border my-1" />
+                  <Link
+                    href="/settings"
+                    onClick={() => setAboutOpen(false)}
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Settings className="h-4 w-4" />
+                    Settings
+                  </Link>
                 </div>
               )}
             </div>
