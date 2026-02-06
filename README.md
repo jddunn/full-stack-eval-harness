@@ -107,17 +107,54 @@ Template variables: `{{input}}`, `{{context}}`, `{{expected}}`, `{{metadata.fiel
 
 ### Graders
 
-YAML files in `backend/graders/`. Each grader scores output as pass/fail with a 0-1 score.
+YAML files in `backend/graders/`. Each grader scores output as pass/fail with a 0–1 score. 7 grader types supported — from fast deterministic checks to LLM-powered evaluation.
 
-| Grader                  | Type                 | Engine    | Threshold |
-| ----------------------- | -------------------- | --------- | --------- |
-| Faithfulness            | context-faithfulness | promptfoo | 0.8       |
-| Helpfulness Judge       | llm-judge            | built-in  | —         |
-| Extraction Completeness | llm-judge            | built-in  | —         |
-| Paper Extraction Schema | json-schema          | built-in  | —         |
-| Semantic Similarity     | semantic-similarity  | built-in  | 0.8       |
+#### Grader Types: Pros vs Cons
 
-Thresholds adjustable per grader in the UI. The `promptfoo` grader type also supports `answer-relevance`, `context-relevance`, `context-recall`, `llm-rubric`, and `similar`.
+| Type | How it works | Pros | Cons | Best for |
+|------|-------------|------|------|----------|
+| **exact-match** | String equality between output and expected | Instant, zero cost, deterministic, no false positives | Brittle — fails on whitespace, casing, or phrasing differences | Classification, fixed-format answers |
+| **contains** | Checks if output includes a target substring | Fast, deterministic, good for keyword checks | No semantic understanding; false positives on partial matches | Verifying key terms, URLs, or required phrases appear |
+| **regex** | Matches output against a regular expression | Flexible pattern matching, deterministic, zero cost | Complex patterns hard to maintain; no semantic awareness | Format validation (emails, dates, IDs), structured text |
+| **json-schema** | Validates JSON output against a JSON Schema definition | Structural correctness in one check, deterministic | Only checks structure — not content quality or accuracy | Extraction tasks, API-style outputs, structured data |
+| **semantic-similarity** | Cosine similarity on sentence embeddings (Sentence-BERT) | Captures meaning beyond surface text; adjustable threshold | Requires embedding model; threshold tuning needed; cost per call | Comparing paraphrased answers, summarization quality |
+| **llm-judge** | Sends output + rubric to an LLM for pass/fail judgment | Highly flexible; evaluates nuance, tone, completeness | Slowest, most expensive; non-deterministic; subject to model bias | Helpfulness, quality, completeness — anything a rubric can describe |
+| **promptfoo** | Delegates to promptfoo's assertion engine (RAGAS-based) | Battle-tested metrics; academic grounding (RAGAS, Sentence-BERT) | Requires promptfoo; LLM calls per assertion; complex config | RAG evaluation — faithfulness, relevance, context recall |
+
+#### Promptfoo Assertions
+
+The `promptfoo` type supports these assertion modes via `config.assertion`:
+
+| Assertion | What it measures |
+|-----------|-----------------|
+| `context-faithfulness` | Are output claims grounded in the provided context? (RAGAS) |
+| `answer-relevance` | Does the output actually answer the question? (RAGAS) |
+| `context-relevance` | Is the retrieved context relevant to the query? (RAGAS) |
+| `context-recall` | Does the context cover the expected answer? (RAGAS) |
+| `llm-rubric` | Custom rubric evaluated by promptfoo's LLM judge |
+| `similar` | Semantic similarity via promptfoo's embedding comparison |
+
+#### Included Graders
+
+| Grader | Type | Threshold | Engine |
+|--------|------|-----------|--------|
+| Faithfulness | `promptfoo` (context-faithfulness) | 0.8 | [promptfoo](https://promptfoo.dev) (external library) |
+| Helpfulness Judge | `llm-judge` | — | Custom (direct LLM call) |
+| Extraction Completeness | `llm-judge` | — | Custom (direct LLM call) |
+| Paper Extraction Schema | `json-schema` | — | [AJV](https://ajv.js.org/) (external library) |
+| Semantic Similarity | `semantic-similarity` | 0.8 | Custom (embeddings + text overlap fallback) |
+
+**Faithfulness** `[promptfoo library]` — Based on the RAGAS framework ([Es et al., 2023](https://arxiv.org/abs/2309.15217)). Delegates entirely to promptfoo's `context-faithfulness` assertion via `runAssertion()`. Promptfoo extracts atomic claims from the LLM output, then verifies each claim is supported by the provided context. A score of 0.8 means at least 80% of claims must be grounded. Detects hallucination in RAG systems — if the model invents facts not present in the retrieved context, this grader catches it. Promptfoo makes multiple LLM calls internally (claim extraction + verification). The harness maps the configured provider (OpenAI/Anthropic/Ollama) to promptfoo's provider format and passes API keys via env vars.
+
+**Helpfulness Judge** `[custom]` — Custom LLM-as-Judge implementation inspired by [Zheng et al., 2023](https://arxiv.org/abs/2306.05685). No external grading library — sends the input, output, and a human-written rubric directly to the configured LLM via our `LlmService.complete()`. The LLM returns a structured `{pass, score, reason}` JSON judgment. Temperature is set to 0.1 for consistent judgments. The rubric checks whether the response directly answers the question, contains accurate information, and is clearly written. Falls back to heuristic parsing if JSON extraction fails. The most flexible grader — change the rubric to evaluate anything.
+
+**Extraction Completeness** `[custom]` — Same custom LLM-as-Judge engine as Helpfulness, with a domain-specific rubric for structured extraction. Evaluates four dimensions: completeness (all fields populated?), accuracy (values match source?), grounding (every value traces to source text?), and structure (valid JSON matching expected schema?). No external library — the rubric is the only difference from Helpfulness Judge.
+
+**Paper Extraction Schema** `[AJV library]` — Deterministic JSON Schema validation using [AJV](https://ajv.js.org/) (Another JSON Validator). Parses the output as JSON, then validates against a schema requiring `title`, `authors`, `keyFindings`, and `keywords` fields with correct types (strings, arrays, nullable fields). Binary pass/fail — either the output matches the schema or it doesn't. Zero cost, instant, no LLM calls. Catches structural errors (missing fields, wrong types) but says nothing about content quality.
+
+**Semantic Similarity** `[custom]` — Custom implementation inspired by Sentence-BERT ([Reimers & Gurevych, 2019](https://arxiv.org/abs/1908.10084)). No external similarity library — embeds both texts via our `LlmService.embed()` (which calls the configured provider's embedding API), then computes cosine similarity between the vectors. Falls back to a custom weighted token overlap algorithm (Jaccard similarity + TF-IDF-style frequency scoring with stop word removal) when embeddings aren't available. Also supports hybrid mode (weighted combination of both), euclidean distance, and dot product metrics. A score of 0.8 means the vectors must be at least 80% aligned.
+
+Thresholds adjustable per grader in the UI. Create new graders from the Graders tab or drop YAML files in `backend/graders/`.
 
 ### Experiments
 
