@@ -1,16 +1,65 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
-import { ArrowLeft, Plus, Trash2, Save } from 'lucide-react';
+import { useState, useEffect, use, useCallback } from 'react';
+import {
+  ArrowLeft,
+  FileJson,
+  FileSpreadsheet,
+  Save,
+  Plus,
+  X,
+  FileText,
+  Info,
+  ChevronDown,
+} from 'lucide-react';
 import Link from 'next/link';
-import { datasetsApi } from '@/lib/api';
-import type { Dataset, TestCase } from '@/lib/types';
+import { datasetsApi, promptsApi } from '@/lib/api';
+import { useToast } from '@/components/Toast';
+import type { Dataset, TestCase, Candidate } from '@/lib/types';
 
-interface EditingCase {
-  id: string;
+interface EditableCase {
   input: string;
   expectedOutput: string;
   context: string;
+  metadata: string;
+  customFields: Record<string, string>;
+}
+
+function toEditable(tc: TestCase): EditableCase {
+  return {
+    input: tc.input,
+    expectedOutput: tc.expectedOutput || '',
+    context: tc.context || '',
+    metadata: tc.metadata ? JSON.stringify(tc.metadata) : '',
+    customFields: { ...(tc.customFields || {}) },
+  };
+}
+
+function extractCustomColumns(testCases: TestCase[]): string[] {
+  return Array.from(
+    new Set(testCases.flatMap((tc) => Object.keys(tc.customFields || {}))),
+  );
+}
+
+function normalizeCases(cases: EditableCase[], customColumns: string[]): EditableCase[] {
+  return cases.map((testCase) => ({
+    ...testCase,
+    customFields: Object.fromEntries(
+      customColumns.map((column) => [column, testCase.customFields[column] || '']),
+    ),
+  }));
+}
+
+function Tooltip({ text }: { text: string }) {
+  return (
+    <div className="group relative inline-block ml-1">
+      <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-foreground text-background text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 w-64 text-left">
+        {text}
+        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-foreground" />
+      </div>
+    </div>
+  );
 }
 
 export default function DatasetDetailPage({
@@ -19,20 +68,33 @@ export default function DatasetDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const { toast } = useToast();
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [loading, setLoading] = useState(true);
-  const [editingCase, setEditingCase] = useState<EditingCase | null>(null);
-  const [newCase, setNewCase] = useState({ input: '', expectedOutput: '', context: '' });
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editedCases, setEditedCases] = useState<EditableCase[]>([]);
+  const [originalCases, setOriginalCases] = useState<EditableCase[]>([]);
+  const [customColumns, setCustomColumns] = useState<string[]>([]);
+  const [linkedPrompts, setLinkedPrompts] = useState<Candidate[]>([]);
+  const [showMeta, setShowMeta] = useState(false);
 
   useEffect(() => {
     loadDataset();
+    loadLinkedPrompts();
   }, [id]);
 
   async function loadDataset() {
     try {
       const data = await datasetsApi.get(id);
       setDataset(data);
+      const detectedCustomColumns = extractCustomColumns(data.testCases || []);
+      const cases = normalizeCases(
+        (data.testCases || []).map(toEditable),
+        detectedCustomColumns,
+      );
+      setCustomColumns(detectedCustomColumns);
+      setEditedCases(cases);
+      setOriginalCases(cases);
     } catch (error) {
       console.error('Failed to load dataset:', error);
     } finally {
@@ -40,57 +102,132 @@ export default function DatasetDetailPage({
     }
   }
 
-  async function addTestCase() {
-    if (!newCase.input.trim()) return;
-
+  async function loadLinkedPrompts() {
     try {
-      await datasetsApi.addTestCase(id, {
-        input: newCase.input.trim(),
-        expectedOutput: newCase.expectedOutput.trim() || undefined,
-        context: newCase.context.trim() || undefined,
-      });
-      setNewCase({ input: '', expectedOutput: '', context: '' });
-      setShowAddForm(false);
-      loadDataset();
-    } catch (error) {
-      console.error('Failed to add test case:', error);
+      const all = await promptsApi.list();
+      setLinkedPrompts(all.filter((p) => p.recommendedDatasets?.includes(id)));
+    } catch {
+      // non-critical
     }
   }
 
-  async function updateTestCase(caseId: string) {
-    if (!editingCase) return;
+  const isDirty = useCallback(() => {
+    return JSON.stringify(editedCases) !== JSON.stringify(originalCases);
+  }, [editedCases, originalCases]);
 
-    try {
-      await datasetsApi.updateTestCase(id, caseId, {
-        input: editingCase.input.trim(),
-        expectedOutput: editingCase.expectedOutput.trim() || undefined,
-        context: editingCase.context.trim() || undefined,
-      });
-      setEditingCase(null);
-      loadDataset();
-    } catch (error) {
-      console.error('Failed to update test case:', error);
-    }
-  }
-
-  async function deleteTestCase(caseId: string) {
-    if (!confirm('Delete this test case?')) return;
-
-    try {
-      await datasetsApi.deleteTestCase(id, caseId);
-      loadDataset();
-    } catch (error) {
-      console.error('Failed to delete test case:', error);
-    }
-  }
-
-  function startEditing(testCase: TestCase) {
-    setEditingCase({
-      id: testCase.id,
-      input: testCase.input,
-      expectedOutput: testCase.expectedOutput || '',
-      context: testCase.context || '',
+  function updateCase(index: number, field: keyof EditableCase, value: string) {
+    setEditedCases((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
     });
+  }
+
+  function addRow() {
+    setEditedCases((prev) => [
+      ...prev,
+      {
+        input: '',
+        expectedOutput: '',
+        context: '',
+        metadata: '',
+        customFields: Object.fromEntries(customColumns.map((column) => [column, ''])),
+      },
+    ]);
+  }
+
+  function removeRow(index: number) {
+    setEditedCases((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function addCustomColumn() {
+    const name = prompt('Custom field name');
+    if (!name) return;
+
+    const normalizedName = name.trim();
+    if (!normalizedName) return;
+
+    const reserved = ['input', 'expected_output', 'context', 'metadata'];
+    if (reserved.includes(normalizedName.toLowerCase())) {
+      toast(`"${normalizedName}" is reserved. Choose another field name.`, 'warning');
+      return;
+    }
+
+    if (customColumns.includes(normalizedName)) {
+      toast(`"${normalizedName}" already exists.`, 'warning');
+      return;
+    }
+
+    setCustomColumns((prev) => [...prev, normalizedName]);
+    setEditedCases((prev) =>
+      prev.map((testCase) => ({
+        ...testCase,
+        customFields: { ...testCase.customFields, [normalizedName]: '' },
+      })),
+    );
+  }
+
+  function removeCustomColumn(column: string) {
+    setCustomColumns((prev) => prev.filter((c) => c !== column));
+    setEditedCases((prev) =>
+      prev.map((testCase) => {
+        const next = { ...testCase.customFields };
+        delete next[column];
+        return { ...testCase, customFields: next };
+      }),
+    );
+  }
+
+  function updateCustomField(index: number, column: string, value: string) {
+    setEditedCases((prev) => {
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        customFields: { ...next[index].customFields, [column]: value },
+      };
+      return next;
+    });
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const testCases = editedCases
+        .filter((ec) => ec.input.trim())
+        .map((ec) => {
+          let metadata: Record<string, unknown> | undefined;
+          if (ec.metadata.trim()) {
+            try {
+              metadata = JSON.parse(ec.metadata);
+            } catch {
+              // ignore invalid JSON
+            }
+          }
+          return {
+            input: ec.input,
+            expectedOutput: ec.expectedOutput || undefined,
+            context: ec.context || undefined,
+            metadata,
+            customFields: { ...ec.customFields },
+          };
+        });
+
+      const updated = await datasetsApi.update(id, { testCases });
+      setDataset(updated);
+      const detectedCustomColumns = extractCustomColumns(updated.testCases || []);
+      const cases = normalizeCases(
+        (updated.testCases || []).map(toEditable),
+        detectedCustomColumns,
+      );
+      setCustomColumns(detectedCustomColumns);
+      setEditedCases(cases);
+      setOriginalCases(cases);
+    } catch (error) {
+      console.error('Failed to save:', error);
+      toast('Failed to save dataset. Check the console for details.', 'error');
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (loading) {
@@ -112,183 +249,237 @@ export default function DatasetDetailPage({
     );
   }
 
+  const dirty = isDirty();
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Link href="/datasets" className="btn-ghost p-2">
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-semibold">{dataset.name}</h1>
-          {dataset.description && (
-            <p className="text-muted-foreground">{dataset.description}</p>
-          )}
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Link href="/datasets" className="btn-ghost p-2">
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-semibold">{dataset.name}</h1>
+            {dataset.description && (
+              <p className="text-muted-foreground">{dataset.description}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleSave}
+            disabled={!dirty || saving}
+            className="btn-primary"
+            title="Save changes to CSV on disk"
+          >
+            <Save className="h-4 w-4 mr-2" />
+            {saving ? 'Saving...' : 'Save to Disk'}
+          </button>
+          <a
+            href={datasetsApi.exportCsvUrl(id)}
+            download
+            className="btn-secondary"
+            title="Download as CSV"
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            CSV
+          </a>
+          <a
+            href={datasetsApi.exportJsonUrl(id)}
+            download
+            className="btn-secondary"
+            title="Download as JSON"
+          >
+            <FileJson className="h-4 w-4 mr-2" />
+            JSON
+          </a>
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {dataset.testCases?.length || 0} test cases
-        </p>
-        <button onClick={() => setShowAddForm(true)} className="btn-primary">
+      {/* File info */}
+      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        <span>{editedCases.length} test cases</span>
+        {dataset.filePath && (
+          <span className="flex items-center gap-1">
+            <FileText className="h-3.5 w-3.5" />
+            <code className="text-xs">{dataset.filePath}</code>
+          </span>
+        )}
+        {dataset.metaPath && (
+          <button
+            onClick={() => setShowMeta(!showMeta)}
+            className="flex items-center gap-1 hover:text-foreground transition-colors"
+          >
+            <FileJson className="h-3.5 w-3.5" />
+            <code className="text-xs">{dataset.metaPath}</code>
+            <ChevronDown className={`h-3 w-3 transition-transform ${showMeta ? 'rotate-180' : ''}`} />
+          </button>
+        )}
+        {dirty && (
+          <span className="text-amber-500 font-medium">Unsaved changes</span>
+        )}
+      </div>
+
+      {/* Dataset metadata JSON */}
+      {showMeta && dataset.metaPath && (
+        <div className="card p-4">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+            Dataset Configuration
+          </h4>
+          <pre className="text-xs font-mono bg-muted/50 p-3 rounded overflow-x-auto">
+{JSON.stringify({
+  name: dataset.name,
+  description: dataset.description || null,
+  filePath: dataset.filePath,
+  metaPath: dataset.metaPath,
+  testCaseCount: dataset.testCaseCount || editedCases.length,
+}, null, 2)}
+          </pre>
+        </div>
+      )}
+
+      {/* Linked prompts */}
+      {linkedPrompts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Used by:</span>
+          {linkedPrompts.map((p) => (
+            <a
+              key={p.id}
+              href={`/candidates/${p.id}`}
+              className="badge bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors text-xs"
+            >
+              {p.name}
+            </a>
+          ))}
+        </div>
+      )}
+
+      {/* Editable test cases table */}
+      <div className="card overflow-hidden">
+        <table className="table">
+          <thead>
+            <tr>
+              <th className="w-10">#</th>
+              <th>
+                <span className="flex items-center">
+                  Input
+                  <Tooltip text="Required. The query or prompt that will be sent to the LLM candidate during evaluation." />
+                </span>
+              </th>
+              <th>
+                <span className="flex items-center">
+                  Expected Output
+                  <Tooltip text="Optional. The ground truth answer used by graders like exact-match, contains, and semantic-similarity to compare against the LLM's response." />
+                </span>
+              </th>
+              <th>
+                <span className="flex items-center">
+                  Context
+                  <span className="text-muted-foreground text-xs font-normal ml-1">(optional)</span>
+                  <Tooltip text="Optional. Supporting context for RAGAS-style faithfulness evaluation. Provides the source material the LLM should reference — used to detect hallucinations (claims not supported by context)." />
+                </span>
+              </th>
+              <th>
+                <span className="flex items-center">
+                  Metadata JSON
+                  <span className="text-muted-foreground text-xs font-normal ml-1">(optional)</span>
+                  <Tooltip text="Optional JSON object. Useful for extra per-row context, labels, or task settings." />
+                </span>
+              </th>
+              {customColumns.map((column) => (
+                <th key={column}>
+                  <div className="flex items-center gap-1">
+                    <span>{column}</span>
+                    <button
+                      onClick={() => removeCustomColumn(column)}
+                      className="btn-ghost p-0.5 text-muted-foreground hover:text-red-500"
+                      title={`Remove "${column}" column`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                </th>
+              ))}
+              <th className="w-10"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {editedCases.map((ec, idx) => (
+              <tr key={idx} className="group">
+                <td className="text-muted-foreground text-xs align-top pt-3">
+                  {idx + 1}
+                </td>
+                <td className="p-1">
+                  <textarea
+                    value={ec.input}
+                    onChange={(e) => updateCase(idx, 'input', e.target.value)}
+                    className="input min-h-[60px] resize-y text-sm font-mono w-full"
+                    placeholder="Input text..."
+                  />
+                </td>
+                <td className="p-1">
+                  <textarea
+                    value={ec.expectedOutput}
+                    onChange={(e) =>
+                      updateCase(idx, 'expectedOutput', e.target.value)
+                    }
+                    className="input min-h-[60px] resize-y text-sm font-mono w-full"
+                    placeholder="Expected output..."
+                  />
+                </td>
+                <td className="p-1">
+                  <textarea
+                    value={ec.context}
+                    onChange={(e) => updateCase(idx, 'context', e.target.value)}
+                    className="input min-h-[60px] resize-y text-sm font-mono w-full"
+                    placeholder="Context..."
+                  />
+                </td>
+                <td className="p-1">
+                  <textarea
+                    value={ec.metadata}
+                    onChange={(e) => updateCase(idx, 'metadata', e.target.value)}
+                    className="input min-h-[60px] resize-y text-sm font-mono w-full"
+                    placeholder='{"difficulty":"easy"}'
+                  />
+                </td>
+                {customColumns.map((column) => (
+                  <td key={column} className="p-1">
+                    <input
+                      value={ec.customFields[column] || ''}
+                      onChange={(e) => updateCustomField(idx, column, e.target.value)}
+                      className="input h-10 text-sm font-mono w-full"
+                      placeholder={`${column}...`}
+                    />
+                  </td>
+                ))}
+                <td className="align-top pt-2">
+                  <button
+                    onClick={() => removeRow(idx)}
+                    className="btn-ghost p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity"
+                    title="Remove row"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Add row / column controls */}
+      <div className="flex gap-2">
+        <button onClick={addRow} className="btn-secondary flex-1">
           <Plus className="h-4 w-4 mr-2" />
           Add Test Case
         </button>
+        <button onClick={addCustomColumn} className="btn-secondary">
+          <Plus className="h-4 w-4 mr-2" />
+          Add Custom Field
+        </button>
       </div>
-
-      {/* Add Form */}
-      {showAddForm && (
-        <div className="card p-4 space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div>
-              <label className="text-sm font-medium block mb-1">Input</label>
-              <textarea
-                value={newCase.input}
-                onChange={(e) => setNewCase({ ...newCase, input: e.target.value })}
-                placeholder="What is 2+2?"
-                className="input min-h-[80px] resize-y"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium block mb-1">Expected Output</label>
-              <textarea
-                value={newCase.expectedOutput}
-                onChange={(e) => setNewCase({ ...newCase, expectedOutput: e.target.value })}
-                placeholder="4"
-                className="input min-h-[80px] resize-y"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium block mb-1">Context (for faithfulness)</label>
-              <textarea
-                value={newCase.context}
-                onChange={(e) => setNewCase({ ...newCase, context: e.target.value })}
-                placeholder="Optional context..."
-                className="input min-h-[80px] resize-y"
-              />
-            </div>
-          </div>
-          <div className="flex gap-2 justify-end">
-            <button onClick={() => setShowAddForm(false)} className="btn-secondary">
-              Cancel
-            </button>
-            <button onClick={addTestCase} className="btn-primary">
-              Add
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Test Cases Table */}
-      {dataset.testCases && dataset.testCases.length > 0 ? (
-        <div className="card overflow-hidden">
-          <table className="table">
-            <thead>
-              <tr>
-                <th className="w-1/3">Input</th>
-                <th className="w-1/3">Expected Output</th>
-                <th className="w-1/4">Context</th>
-                <th className="w-20">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dataset.testCases.map((tc) => (
-                <tr key={tc.id}>
-                  {editingCase?.id === tc.id ? (
-                    <>
-                      <td>
-                        <textarea
-                          value={editingCase.input}
-                          onChange={(e) =>
-                            setEditingCase({ ...editingCase, input: e.target.value })
-                          }
-                          className="input min-h-[60px] resize-y text-sm"
-                        />
-                      </td>
-                      <td>
-                        <textarea
-                          value={editingCase.expectedOutput}
-                          onChange={(e) =>
-                            setEditingCase({ ...editingCase, expectedOutput: e.target.value })
-                          }
-                          className="input min-h-[60px] resize-y text-sm"
-                        />
-                      </td>
-                      <td>
-                        <textarea
-                          value={editingCase.context}
-                          onChange={(e) =>
-                            setEditingCase({ ...editingCase, context: e.target.value })
-                          }
-                          className="input min-h-[60px] resize-y text-sm"
-                        />
-                      </td>
-                      <td>
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => updateTestCase(tc.id)}
-                            className="btn-ghost p-2 text-success"
-                          >
-                            <Save className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => setEditingCase(null)}
-                            className="btn-ghost p-2 text-muted-foreground"
-                          >
-                            &times;
-                          </button>
-                        </div>
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td
-                        onClick={() => startEditing(tc)}
-                        className="cursor-pointer hover:bg-muted/50"
-                      >
-                        <pre className="text-sm whitespace-pre-wrap font-mono">
-                          {tc.input}
-                        </pre>
-                      </td>
-                      <td
-                        onClick={() => startEditing(tc)}
-                        className="cursor-pointer hover:bg-muted/50"
-                      >
-                        <pre className="text-sm whitespace-pre-wrap font-mono text-muted-foreground">
-                          {tc.expectedOutput || '—'}
-                        </pre>
-                      </td>
-                      <td
-                        onClick={() => startEditing(tc)}
-                        className="cursor-pointer hover:bg-muted/50"
-                      >
-                        <pre className="text-sm whitespace-pre-wrap font-mono text-muted-foreground truncate max-w-[200px]">
-                          {tc.context || '—'}
-                        </pre>
-                      </td>
-                      <td>
-                        <button
-                          onClick={() => deleteTestCase(tc.id)}
-                          className="btn-ghost p-2 text-muted-foreground hover:text-error"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </td>
-                    </>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="card p-12 text-center">
-          <p className="text-muted-foreground">No test cases yet</p>
-          <button onClick={() => setShowAddForm(true)} className="btn-secondary mt-4">
-            Add your first test case
-          </button>
-        </div>
-      )}
     </div>
   );
 }

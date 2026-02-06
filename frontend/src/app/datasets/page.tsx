@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Plus, Trash2, ChevronRight, Sparkles, Wand2, Info } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ChevronRight, RefreshCw, Upload, Info, ChevronDown, Wand2 } from 'lucide-react';
 import Link from 'next/link';
-import { datasetsApi, presetsApi, type DatasetPreset } from '@/lib/api';
+import { datasetsApi, presetsApi } from '@/lib/api';
+import { useToast } from '@/components/Toast';
 import type { Dataset } from '@/lib/types';
 
 function Tooltip({ text }: { text: string }) {
@@ -26,20 +27,15 @@ const SYNTHETIC_STYLES = [
 ] as const;
 
 export default function DatasetsPage() {
+  const { toast } = useToast();
   const [datasets, setDatasets] = useState<Dataset[]>([]);
-  const [presets, setPresets] = useState<DatasetPreset[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showPresets, setShowPresets] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [showSyntheticModal, setShowSyntheticModal] = useState(false);
-  const [loadingPreset, setLoadingPreset] = useState<string | null>(null);
   const [generatingSynthetic, setGeneratingSynthetic] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Create form state
-  const [newName, setNewName] = useState('');
-  const [newDescription, setNewDescription] = useState('');
-
-  // Synthetic form state
   const [syntheticForm, setSyntheticForm] = useState({
     name: '',
     topic: '',
@@ -50,7 +46,6 @@ export default function DatasetsPage() {
 
   useEffect(() => {
     loadDatasets();
-    loadPresets();
   }, []);
 
   async function loadDatasets() {
@@ -64,42 +59,35 @@ export default function DatasetsPage() {
     }
   }
 
-  async function loadPresets() {
+  async function reloadFromDisk() {
+    setReloading(true);
     try {
-      const data = await presetsApi.getDatasetPresets();
-      setPresets(data);
-    } catch (error) {
-      console.error('Failed to load presets:', error);
-    }
-  }
-
-  async function loadPreset(preset: DatasetPreset) {
-    setLoadingPreset(preset.id);
-    try {
-      await presetsApi.loadDatasetPreset(preset.id);
+      const result = await datasetsApi.reload();
       await loadDatasets();
-      setShowPresets(false);
+      toast(`Reloaded ${result.loaded} datasets from disk`, 'success');
     } catch (error) {
-      console.error('Failed to load preset:', error);
+      console.error('Failed to reload:', error);
     } finally {
-      setLoadingPreset(null);
+      setReloading(false);
     }
   }
 
-  async function createDataset() {
-    if (!newName.trim()) return;
+  async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
     try {
-      await datasetsApi.create({
-        name: newName.trim(),
-        description: newDescription.trim() || undefined,
-      });
-      setNewName('');
-      setNewDescription('');
-      setShowCreateModal(false);
-      loadDatasets();
+      const csv = await file.text();
+      const filename = file.name.replace(/\.csv$/, '');
+      await datasetsApi.importCsv({ filename, csv });
+      await loadDatasets();
     } catch (error) {
-      console.error('Failed to create dataset:', error);
+      console.error('Failed to import CSV:', error);
+      toast('Failed to import CSV. Check the file format.', 'error');
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   }
 
@@ -126,20 +114,9 @@ export default function DatasetsPage() {
       loadDatasets();
     } catch (error) {
       console.error('Failed to generate synthetic dataset:', error);
-      alert('Failed to generate. Check LLM configuration.');
+      toast('Failed to generate. Check LLM configuration.', 'error');
     } finally {
       setGeneratingSynthetic(false);
-    }
-  }
-
-  async function deleteDataset(id: string) {
-    if (!confirm('Delete this dataset and all its test cases?')) return;
-
-    try {
-      await datasetsApi.delete(id);
-      loadDatasets();
-    } catch (error) {
-      console.error('Failed to delete dataset:', error);
     }
   }
 
@@ -157,74 +134,90 @@ export default function DatasetsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Datasets</h1>
           <p className="text-muted-foreground mt-1">
-            Manage your test case collections
+            CSV files loaded from <code className="text-xs">backend/datasets/</code>
           </p>
         </div>
         <div className="flex gap-2">
-          <div className="relative">
-            <button
-              onClick={() => setShowPresets(!showPresets)}
-              className="btn-secondary"
-            >
-              <Sparkles className="h-4 w-4 mr-2" />
-              Load Preset
-            </button>
-
-            {showPresets && (
-              <div className="absolute right-0 mt-2 w-72 card p-2 z-50 shadow-xl">
-                <div className="text-xs text-muted-foreground px-2 py-1 mb-1">
-                  Quick-load sample datasets
-                </div>
-                {presets.map((preset) => (
-                  <button
-                    key={preset.id}
-                    onClick={() => loadPreset(preset)}
-                    disabled={loadingPreset === preset.id}
-                    className="w-full text-left px-3 py-2 rounded-md hover:bg-muted/50 transition-colors disabled:opacity-50"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-sm">{preset.name}</span>
-                      <Tooltip text={preset.tooltip} />
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {preset.description} ({preset.testCases.length} cases)
-                    </p>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <button
+            onClick={reloadFromDisk}
+            disabled={reloading}
+            className="btn-secondary"
+            title="Re-read all CSV files from disk"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${reloading ? 'animate-spin' : ''}`} />
+            {reloading ? 'Reloading...' : 'Reload from Disk'}
+          </button>
           <button
             onClick={() => setShowSyntheticModal(true)}
             className="btn-secondary"
+            title="Use AI to generate test cases and save as CSV"
           >
             <Wand2 className="h-4 w-4 mr-2" />
             Generate
           </button>
-          <button onClick={() => setShowCreateModal(true)} className="btn-primary">
-            <Plus className="h-4 w-4 mr-2" />
-            New Dataset
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="btn-primary"
+            title="Upload a CSV file to the datasets directory"
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Upload CSV
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
         </div>
       </div>
 
+      {/* Expandable guide */}
+      <button
+        onClick={() => setShowGuide(!showGuide)}
+        className="w-full text-left px-4 py-3 card flex items-center justify-between text-sm hover:bg-muted/50 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-muted-foreground">
+          <Info className="h-4 w-4" />
+          How datasets work
+        </span>
+        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${showGuide ? 'rotate-180' : ''}`} />
+      </button>
+      {showGuide && (
+        <div className="card p-5 space-y-3 text-sm text-muted-foreground">
+          <p>
+            Datasets are <strong className="text-foreground">CSV files</strong> in <code>backend/datasets/</code>.
+            Each CSV has columns: <code>input</code>, <code>expected_output</code>, <code>context</code>, <code>metadata</code>.
+          </p>
+          <p>
+            <strong className="text-foreground">To add a dataset:</strong> Place a <code>.csv</code> file in the datasets directory
+            and click &ldquo;Reload from Disk&rdquo;, or use &ldquo;Upload CSV&rdquo; to import directly.
+          </p>
+          <p>
+            An optional <code>.meta.json</code> sidecar provides the dataset name and description.
+            Without it, the name is derived from the filename.
+          </p>
+          <p>
+            <strong className="text-foreground">Generate</strong> uses AI to create test cases and saves them as a new CSV file.
+          </p>
+        </div>
+      )}
+
       {datasets.length === 0 ? (
         <div className="card p-12 text-center">
-          <p className="text-muted-foreground">No datasets yet</p>
+          <p className="text-muted-foreground">No datasets found</p>
+          <p className="text-sm text-muted-foreground mt-2">
+            Add CSV files to <code>backend/datasets/</code> and reload, or upload a CSV.
+          </p>
           <div className="flex gap-2 justify-center mt-4">
-            <button onClick={() => setShowPresets(true)} className="btn-secondary">
-              <Sparkles className="h-4 w-4 mr-2" />
-              Load a preset
+            <button onClick={reloadFromDisk} className="btn-secondary">
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Reload from Disk
             </button>
-            <button onClick={() => setShowSyntheticModal(true)} className="btn-secondary">
-              <Wand2 className="h-4 w-4 mr-2" />
-              Generate with AI
-            </button>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="btn-secondary"
-            >
-              Create empty
+            <button onClick={() => fileInputRef.current?.click()} className="btn-secondary">
+              <Upload className="h-4 w-4 mr-2" />
+              Upload CSV
             </button>
           </div>
         </div>
@@ -244,67 +237,15 @@ export default function DatasetsPage() {
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1">
+                    <code className="text-[11px]">{dataset.filePath || `${dataset.id}.csv`}</code>
+                    {' · '}
                     {dataset.testCaseCount || 0} test cases
                   </p>
                 </div>
                 <ChevronRight className="h-5 w-5 text-muted-foreground ml-auto" />
               </Link>
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  deleteDataset(dataset.id);
-                }}
-                className="btn-ghost p-2 text-muted-foreground hover:text-error ml-2"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Create Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="card p-6 w-full max-w-md">
-            <h2 className="text-lg font-semibold mb-4">Create Dataset</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium block mb-1">Name</label>
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="My Dataset"
-                  className="input"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium block mb-1">
-                  Description (optional)
-                </label>
-                <input
-                  type="text"
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  placeholder="A collection of test cases for..."
-                  className="input"
-                />
-              </div>
-              <div className="flex gap-2 justify-end">
-                <button
-                  onClick={() => setShowCreateModal(false)}
-                  className="btn-secondary"
-                >
-                  Cancel
-                </button>
-                <button onClick={createDataset} className="btn-primary">
-                  Create
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -317,7 +258,7 @@ export default function DatasetsPage() {
               Generate Synthetic Dataset
             </h2>
             <p className="text-sm text-muted-foreground mb-4">
-              Use AI to generate test cases based on your topic and style.
+              Use AI to generate test cases and save as a CSV file.
             </p>
             <div className="space-y-4">
               <div>
@@ -328,7 +269,7 @@ export default function DatasetsPage() {
                   onChange={(e) =>
                     setSyntheticForm({ ...syntheticForm, name: e.target.value })
                   }
-                  placeholder="Math Questions"
+                  placeholder="Physics Questions"
                   className="input"
                   autoFocus
                 />
@@ -426,14 +367,6 @@ export default function DatasetsPage() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Click outside to close presets dropdown */}
-      {showPresets && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setShowPresets(false)}
-        />
       )}
     </div>
   );
