@@ -1,6 +1,10 @@
+# Environment files (contain API keys)
+.env
+.env.local
+.env.*.local
+
 # Dependencies
 node_modules/
-.pnpm-store/
 
 # Build outputs
 dist/
@@ -8,14 +12,8 @@ dist/
 out/
 
 # Database
-*.sqlite
 *.sqlite3
-data/
-
-# Environment
-.env
-.env.local
-.env.*.local
+*.db
 
 # IDE
 .idea/
@@ -30,10 +28,10 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
-pnpm-debug.log*
 
 # Test coverage
 coverage/
 
-# Drizzle
-drizzle/
+# Misc
+*.tgz
+.turbo/
