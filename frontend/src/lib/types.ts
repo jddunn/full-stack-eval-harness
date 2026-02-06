@@ -6,10 +6,13 @@ export interface Dataset {
   id: string;
   name: string;
   description?: string;
-  createdAt: string;
-  updatedAt: string;
+  source?: 'file';
+  filePath?: string;
+  metaPath?: string | null;
   testCaseCount?: number;
   testCases?: TestCase[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface TestCase {
@@ -19,19 +22,18 @@ export interface TestCase {
   expectedOutput?: string;
   context?: string;
   metadata?: Record<string, unknown>;
-  createdAt: string;
+  customFields?: Record<string, string>;
+  createdAt?: string;
 }
 
 export type GraderType =
   | 'exact-match'
   | 'llm-judge'
   | 'semantic-similarity'
-  | 'faithfulness'
   | 'contains'
   | 'regex'
   | 'json-schema'
-  | 'answer-relevancy'
-  | 'context-relevancy';
+  | 'promptfoo';
 
 export interface Grader {
   id: string;
@@ -40,6 +42,10 @@ export interface Grader {
   type: GraderType;
   rubric?: string;
   config?: Record<string, unknown>;
+  inspiration?: string;
+  reference?: string;
+  source?: 'file';
+  filePath?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,8 +73,14 @@ export interface Candidate {
   endpointBodyTemplate?: string;
   parentId?: string;
   variantLabel?: string;
-  createdAt: string;
-  updatedAt: string;
+  recommendedGraders?: string[];
+  graderWeights?: Record<string, number>;
+  recommendedDatasets?: string[];
+  graderRationale?: string;
+  notes?: string;
+  source?: 'file';
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Experiment {
@@ -134,6 +146,7 @@ export interface ExperimentStats {
     total: number;
     passed: number;
     avgScore: number;
+    weightedScore?: number;
     passRate: number;
     byGrader: Array<{
       graderId: string;

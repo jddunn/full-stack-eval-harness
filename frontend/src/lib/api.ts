@@ -4,7 +4,6 @@ import type {
   Grader,
   GraderType,
   Candidate,
-  CandidateRunnerType,
   Experiment,
   ExperimentStats,
   CandidateComparison,
@@ -35,14 +34,38 @@ async function fetchApi<T>(
   return response.json();
 }
 
-// Dataset API
+// Dataset API (read-only — datasets are loaded from CSV files on disk)
 export const datasetsApi = {
   list: () => fetchApi<Dataset[]>('/datasets'),
 
   get: (id: string) => fetchApi<Dataset>(`/datasets/${id}`),
 
-  create: (data: { name: string; description?: string }) =>
-    fetchApi<Dataset>('/datasets', {
+  update: (id: string, data: {
+    name?: string;
+    description?: string;
+    testCases?: Array<{
+      input: string;
+      expectedOutput?: string;
+      context?: string;
+      metadata?: Record<string, unknown>;
+      customFields?: Record<string, string>;
+    }>;
+  }) =>
+    fetchApi<Dataset>(`/datasets/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  reload: () =>
+    fetchApi<{ loaded: number }>('/datasets/reload', { method: 'POST' }),
+
+  importCsv: (data: {
+    filename: string;
+    csv: string;
+    name?: string;
+    description?: string;
+  }) =>
+    fetchApi<Dataset>('/datasets/import', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -50,46 +73,6 @@ export const datasetsApi = {
   // Export URLs (for download links)
   exportJsonUrl: (id: string) => `${API_BASE}/datasets/${id}/export/json`,
   exportCsvUrl: (id: string) => `${API_BASE}/datasets/${id}/export/csv`,
-
-  // Import test cases
-  importTestCases: (
-    datasetId: string,
-    testCases: Array<{ input: string; expectedOutput?: string; context?: string }>,
-  ) =>
-    fetchApi<{ imported: number; testCases: TestCase[] }>(`/datasets/${datasetId}/import`, {
-      method: 'POST',
-      body: JSON.stringify({ testCases }),
-    }),
-
-  update: (id: string, data: { name?: string; description?: string }) =>
-    fetchApi<Dataset>(`/datasets/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-
-  delete: (id: string) =>
-    fetchApi<{ deleted: boolean }>(`/datasets/${id}`, { method: 'DELETE' }),
-
-  addTestCase: (datasetId: string, data: Omit<TestCase, 'id' | 'datasetId' | 'createdAt'>) =>
-    fetchApi<TestCase>(`/datasets/${datasetId}/cases`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  updateTestCase: (
-    datasetId: string,
-    caseId: string,
-    data: Partial<Omit<TestCase, 'id' | 'datasetId' | 'createdAt'>>,
-  ) =>
-    fetchApi<TestCase>(`/datasets/${datasetId}/cases/${caseId}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-
-  deleteTestCase: (datasetId: string, caseId: string) =>
-    fetchApi<{ deleted: boolean }>(`/datasets/${datasetId}/cases/${caseId}`, {
-      method: 'DELETE',
-    }),
 };
 
 // Grader API
@@ -118,52 +101,86 @@ export const gradersApi = {
 
   delete: (id: string) =>
     fetchApi<{ deleted: boolean }>(`/graders/${id}`, { method: 'DELETE' }),
+
+  reload: () =>
+    fetchApi<{ loaded: number }>('/graders/reload', { method: 'POST' }),
 };
 
-// Candidate API
-export const candidatesApi = {
-  list: () => fetchApi<Candidate[]>('/candidates'),
+// Prompts API (loaded from markdown files on disk)
+export const promptsApi = {
+  list: () => fetchApi<Candidate[]>('/prompts'),
 
-  get: (id: string) => fetchApi<Candidate>(`/candidates/${id}`),
+  get: (id: string) => fetchApi<Candidate>(`/prompts/${id}`),
 
-  create: (data: {
-    name: string;
+  update: (id: string, data: {
+    name?: string;
     description?: string;
-    runnerType: CandidateRunnerType;
+    runnerType?: 'llm_prompt' | 'http_endpoint';
     systemPrompt?: string;
     userPromptTemplate?: string;
-    modelConfig?: Record<string, unknown>;
+    temperature?: number;
+    maxTokens?: number;
+    provider?: string;
+    model?: string;
     endpointUrl?: string;
     endpointMethod?: string;
-    endpointHeaders?: Record<string, string>;
     endpointBodyTemplate?: string;
-    parentId?: string;
-    variantLabel?: string;
+    recommendedGraders?: string[];
+    graderWeights?: Record<string, number>;
+    recommendedDatasets?: string[];
+    graderRationale?: string;
+    notes?: string;
   }) =>
-    fetchApi<Candidate>('/candidates', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  update: (
-    id: string,
-    data: Partial<Omit<Candidate, 'id' | 'createdAt' | 'updatedAt'>>,
-  ) =>
-    fetchApi<Candidate>(`/candidates/${id}`, {
+    fetchApi<Candidate>(`/prompts/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
 
-  delete: (id: string) =>
-    fetchApi<{ deleted: boolean }>(`/candidates/${id}`, { method: 'DELETE' }),
-
-  getVariants: (id: string) => fetchApi<Candidate[]>(`/candidates/${id}/variants`),
-
   test: (id: string, data: { input: string; context?: string; metadata?: Record<string, unknown> }) =>
-    fetchApi<{ output: string; latencyMs: number; error?: string }>(`/candidates/${id}/test`, {
+    fetchApi<{ output: string; latencyMs: number; error?: string }>(`/prompts/${id}/test`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  createVariant: (parentId: string, data: {
+    variantLabel: string;
+    name?: string;
+    description?: string;
+    systemPrompt?: string;
+  }) =>
+    fetchApi<Candidate>(`/prompts/${parentId}/variant`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  generateVariants: (parentId: string, data: {
+    count?: number;
+    customInstructions?: string;
+    provider?: 'openai' | 'anthropic' | 'ollama';
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+  }) =>
+    fetchApi<{
+      parentId: string;
+      created: Candidate[];
+      skipped: Array<{ requestedLabel: string; reason: string }>;
+      usedConfig: {
+        provider: 'openai' | 'anthropic' | 'ollama';
+        model: string;
+        temperature: number;
+        maxTokens: number;
+      };
+    }>(`/prompts/${parentId}/variants/generate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  delete: (id: string) =>
+    fetchApi<{ deleted: boolean }>(`/prompts/${id}`, { method: 'DELETE' }),
+
+  reload: () =>
+    fetchApi<{ loaded: number }>('/prompts/reload', { method: 'POST' }),
 };
 
 // Experiment API
@@ -211,48 +228,15 @@ export interface GraderPreset {
   tooltip: string;
 }
 
-export interface DatasetPreset {
-  id: string;
-  name: string;
-  description: string;
-  testCases: Array<{
-    input: string;
-    expectedOutput: string;
-    context?: string;
-  }>;
-  tooltip: string;
-}
-
-export interface CandidatePreset {
-  id: string;
-  name: string;
-  description: string;
-  runnerType: CandidateRunnerType;
-  systemPrompt?: string;
-  userPromptTemplate?: string;
-  modelConfig?: Record<string, unknown>;
-  tooltip: string;
-}
-
-// Presets API
+// Presets API (graders only — datasets are CSV files)
 export const presetsApi = {
   getGraderPresets: () => fetchApi<GraderPreset[]>('/presets/graders'),
-
-  getDatasetPresets: () => fetchApi<DatasetPreset[]>('/presets/datasets'),
-
-  getCandidatePresets: () => fetchApi<CandidatePreset[]>('/presets/candidates'),
 
   loadGraderPreset: (id: string) =>
     fetchApi<Grader>(`/presets/graders/${id}/load`, { method: 'POST' }),
 
-  loadDatasetPreset: (id: string) =>
-    fetchApi<Dataset>(`/presets/datasets/${id}/load`, { method: 'POST' }),
-
-  loadCandidatePreset: (id: string) =>
-    fetchApi<Candidate>(`/presets/candidates/${id}/load`, { method: 'POST' }),
-
   seedAll: () =>
-    fetchApi<{ graders: Grader[]; datasets: Dataset[] }>('/presets/seed', {
+    fetchApi<{ graders: Grader[] }>('/presets/seed', {
       method: 'POST',
     }),
 
