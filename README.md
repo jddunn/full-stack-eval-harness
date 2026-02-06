@@ -132,7 +132,7 @@ Select dataset + candidates + graders → Run. Results stream via SSE. Each cand
 
 ## API Reference
 
-See [API.md](API.md) for the full endpoint reference. Interactive docs available at `http://localhost:3021/api/docs` (Swagger).
+Full endpoint reference in [API.md](API.md). Interactive Swagger docs at [`localhost:3021/api/docs`](http://localhost:3021/api/docs).
 
 ---
 
