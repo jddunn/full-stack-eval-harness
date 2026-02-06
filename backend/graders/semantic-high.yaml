@@ -1,0 +1,9 @@
+name: Semantic Match (High)
+description: Output meaning must be very similar (>85%)
+type: semantic-similarity
+config:
+  threshold: 0.85
+inspiration: |
+  Based on Sentence-BERT (Reimers & Gurevych, 2019). Cosine similarity on
+  sentence embeddings captures meaning beyond surface-level string matching.
+reference: https://arxiv.org/abs/1908.10084

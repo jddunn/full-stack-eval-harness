@@ -1,0 +1,8 @@
+name: "RAGAS Context Relevance"
+description: "Measures how relevant the retrieved context is to the query. Identifies whether the context contains information useful for answering the question."
+type: promptfoo
+config:
+  assertion: context-relevance
+  threshold: 0.7
+inspiration: "RAGAS framework (Retrieval Augmented Generation Assessment). Evaluates retrieval quality by measuring context-query alignment."
+reference: "https://arxiv.org/abs/2309.15217"

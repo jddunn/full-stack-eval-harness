@@ -1,0 +1,9 @@
+name: "Promptfoo LLM Rubric"
+description: "Uses promptfoo's LLM-as-judge to evaluate responses against a custom rubric. Provides flexible, criteria-based evaluation."
+type: promptfoo
+rubric: "Evaluate the response for accuracy, helpfulness, and clarity. The response should directly address the user's query and provide correct information."
+config:
+  assertion: llm-rubric
+  threshold: 0.7
+inspiration: "LLM-as-Judge pattern using promptfoo's battle-tested implementation. Supports custom rubrics for domain-specific evaluation."
+reference: "https://arxiv.org/abs/2306.05685"

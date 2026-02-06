@@ -1,0 +1,8 @@
+name: "Promptfoo Semantic Similarity"
+description: "Uses promptfoo's embedding-based similarity to compare response against expected output. Good for measuring semantic equivalence."
+type: promptfoo
+config:
+  assertion: similar
+  threshold: 0.8
+inspiration: "Embedding-based semantic similarity using promptfoo's multi-provider embedding support. Compares cosine similarity of vector representations."
+reference: "https://arxiv.org/abs/1908.10084"

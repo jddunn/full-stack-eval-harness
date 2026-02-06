@@ -1,0 +1,4 @@
+input,expected_output,context,metadata
+"When was the company founded?","The company was founded in 2015.","Acme Corp was founded in 2015 by Jane Smith. The company is headquartered in San Francisco and has 500 employees.",""
+"Where is the headquarters located?","The headquarters is in San Francisco.","Acme Corp was founded in 2015 by Jane Smith. The company is headquartered in San Francisco and has 500 employees.",""
+"How many employees does the company have?","The company has 500 employees.","Acme Corp was founded in 2015 by Jane Smith. The company is headquartered in San Francisco and has 500 employees.",""

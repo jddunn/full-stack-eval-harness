@@ -1,0 +1,8 @@
+name: "RAGAS Answer Relevance"
+description: "Measures how relevant and appropriate the response is to the original query. Generates hypothetical questions from the answer and compares them to the original."
+type: promptfoo
+config:
+  assertion: answer-relevance
+  threshold: 0.7
+inspiration: "RAGAS framework (Retrieval Augmented Generation Assessment). Uses reverse question generation to measure semantic relevance."
+reference: "https://arxiv.org/abs/2309.15217"
