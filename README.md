@@ -116,6 +116,12 @@ YAML files in `backend/graders/`. Each grader scores LLM output as pass/fail wit
 | **Extraction Completeness** | LLM Judge | LLM evaluates extraction quality, completeness, and grounding. | rubric |
 | **Semantic Similarity** | Semantic Similarity | Measures how close the output meaning is to the expected answer. Threshold adjustable (0.7 moderate, 0.85 strict, 0.9+ exact). | threshold: 0.8 |
 
+**Faithfulness** — Decomposes output into atomic claims, verifies each against the provided context via NLI. Score = fraction of supported claims. Delegates to [promptfoo](https://promptfoo.dev)'s RAGAS implementation ([Es et al., 2023](https://arxiv.org/abs/2309.15217)) — multiple LLM calls per evaluation.
+
+**Helpfulness / Extraction Completeness** — LLM-as-Judge ([Zheng et al., 2023](https://arxiv.org/abs/2306.05685)). Sends input + output + rubric to the LLM at temperature 0.1, returns `{pass, score, reason}` JSON. Different rubrics — Helpfulness checks accuracy and clarity; Extraction Completeness checks completeness, accuracy, grounding, and JSON structure.
+
+**Semantic Similarity** — Embeds both texts via provider APIs (OpenAI `text-embedding-3-small`, Ollama), computes cosine similarity between vectors. Falls back to Jaccard + weighted token overlap when embeddings are unavailable.
+
 4 additional evaluation types are supported but have no seed graders (task-specific, create from the Graders tab): **exact-match**, **contains**, **regex**, **json-schema**.
 
 Thresholds and rubrics are editable in the UI. Create new graders from the Graders tab or drop YAML files in `backend/graders/`.
