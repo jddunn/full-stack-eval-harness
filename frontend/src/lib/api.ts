@@ -163,10 +163,7 @@ export const promptsApi = {
       body: JSON.stringify(data),
     }),
 
-  suggestVariantName: (
-    parentId: string,
-    data: { variantLabel: string; systemPrompt?: string }
-  ) =>
+  suggestVariantName: (parentId: string, data: { variantLabel: string; systemPrompt?: string }) =>
     fetchApi<{ name: string }>(`/prompts/${parentId}/variant/suggest-name`, {
       method: 'POST',
       body: JSON.stringify(data),

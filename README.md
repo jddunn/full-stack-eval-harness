@@ -76,7 +76,12 @@ Everything is **file-based**: datasets are CSV, prompts are markdown, graders ar
 
 ### Datasets
 
-CSV files in `backend/datasets/`. Columns: `input`, `expected_output`, `context`, `metadata`. Optional `.meta.json` sidecar for display name/description. Upload via UI or drop files in the directory.
+CSV files in `backend/datasets/`. Only two columns are required: `input` and `expected_output`. Two optional columns are available:
+
+- **`context`** — reference text the LLM should ground its answer in. Required for the `context-faithfulness` grader (RAG evaluation); ignored by other graders if absent.
+- **`metadata`** — arbitrary extra fields (JSON or plain text). Accessible in prompt templates via `{{metadata.field}}`. Useful for tagging test cases (e.g. difficulty, category) but not used by any grader.
+
+Optional `.meta.json` sidecar for display name/description. Upload via UI or drop files in the directory.
 
 **Included:** context-qa, research-paper-extraction, summarization, text-rewriting, text-rewriting-research.
 

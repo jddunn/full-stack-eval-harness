@@ -11,7 +11,7 @@ export class PromptsController {
   constructor(
     private promptLoader: PromptLoaderService,
     private runner: CandidateRunnerService,
-    private variantGenerator: PromptVariantGeneratorService,
+    private variantGenerator: PromptVariantGeneratorService
   ) {}
 
   @Get()
@@ -27,7 +27,7 @@ export class PromptsController {
   @Post(':id/test')
   async testPrompt(
     @Param('id') id: string,
-    @Body() body: { input: string; context?: string; metadata?: Record<string, unknown> },
+    @Body() body: { input: string; context?: string; metadata?: Record<string, unknown> }
   ) {
     const prompt = this.promptLoader.findOne(id);
     const result = await this.runner.run(prompt, {
@@ -51,7 +51,7 @@ export class PromptsController {
       name?: string;
       description?: string;
       systemPrompt?: string;
-    },
+    }
   ) {
     return this.promptLoader.createVariant(id, body);
   }
@@ -62,7 +62,7 @@ export class PromptsController {
   @Post(':id/variant/suggest-name')
   suggestVariantName(
     @Param('id') id: string,
-    @Body() body: { variantLabel: string; systemPrompt?: string },
+    @Body() body: { variantLabel: string; systemPrompt?: string }
   ) {
     return this.variantGenerator.suggestVariantName(id, body);
   }
@@ -72,10 +72,7 @@ export class PromptsController {
    * Generation options are configurable per request and fall back to global settings.
    */
   @Post(':id/variants/generate')
-  generateVariants(
-    @Param('id') id: string,
-    @Body() body: GeneratePromptVariantsDto,
-  ) {
+  generateVariants(@Param('id') id: string, @Body() body: GeneratePromptVariantsDto) {
     return this.variantGenerator.generate(id, body);
   }
 
@@ -101,7 +98,7 @@ export class PromptsController {
       recommendedDatasets?: string[];
       graderRationale?: string;
       notes?: string;
-    },
+    }
   ) {
     return this.promptLoader.updatePrompt(id, body);
   }

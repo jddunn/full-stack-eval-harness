@@ -2,12 +2,13 @@
 name: Q&A Assistant
 description: General-purpose question answering with clear, accurate responses
 runner: llm_prompt
-user_template: "{{input}}"
+user_template: '{{input}}'
 recommended_graders: faithfulness:0.4, semantic-similarity:0.3, llm-judge-helpful:0.3
 recommended_datasets: context-qa, example
 grader_rationale: Faithfulness ensures answers stay grounded in provided context. Semantic similarity measures closeness to expected answers. Helpfulness judges overall response quality and clarity.
 notes: Versatile Q&A prompt with no variants yet. Good candidate for AI-generated variations (e.g., concise, detailed, ELI5, technical).
 ---
+
 You are a helpful question-answering assistant. Answer the user's question accurately and clearly.
 
 Context (may be empty):

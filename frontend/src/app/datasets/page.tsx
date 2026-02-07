@@ -130,7 +130,9 @@ export default function DatasetsPage() {
   }
 
   async function handleDelete(dataset: Dataset) {
-    if (!confirm(`Delete "${dataset.name}"? This removes the folder from disk and cannot be undone.`))
+    if (
+      !confirm(`Delete "${dataset.name}"? This removes the folder from disk and cannot be undone.`)
+    )
       return;
     try {
       await datasetsApi.delete(dataset.id);

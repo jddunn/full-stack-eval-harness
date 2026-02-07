@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  InternalServerErrorException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { LlmService, LlmProvider } from '../llm/llm.service';
 import { LoadedPrompt, PromptLoaderService } from './prompt-loader.service';
 
@@ -41,7 +37,7 @@ export class PromptVariantGeneratorService {
 
   constructor(
     private promptLoader: PromptLoaderService,
-    private llmService: LlmService,
+    private llmService: LlmService
   ) {}
 
   /**
@@ -49,7 +45,7 @@ export class PromptVariantGeneratorService {
    */
   async suggestVariantName(
     parentId: string,
-    dto: { variantLabel: string; systemPrompt?: string },
+    dto: { variantLabel: string; systemPrompt?: string }
   ): Promise<{ name: string }> {
     const parent = this.promptLoader.findOne(parentId);
 
@@ -78,13 +74,13 @@ Respond with ONLY the display name, no quotes or extra text.`;
 
   async generate(
     parentId: string,
-    dto: GeneratePromptVariantsDto,
+    dto: GeneratePromptVariantsDto
   ): Promise<GeneratePromptVariantsResult> {
     const parent = this.promptLoader.findOne(parentId);
 
     if (parent.runnerType !== 'llm_prompt') {
       throw new BadRequestException(
-        'AI variant generation is only supported for llm_prompt candidates',
+        'AI variant generation is only supported for llm_prompt candidates'
       );
     }
 
@@ -127,8 +123,7 @@ Respond with ONLY the display name, no quotes or extra text.`;
       const uniqueLabel = this.ensureUniqueLabel(parentId, baseLabel, existingIds);
       const systemPrompt = (draft.systemPrompt || '').trim();
       const cleanName = draft.name?.replace(/\s+/g, ' ').trim() || undefined;
-      const cleanDescription =
-        draft.description?.replace(/\s+/g, ' ').trim() || undefined;
+      const cleanDescription = draft.description?.replace(/\s+/g, ' ').trim() || undefined;
 
       if (!systemPrompt) {
         skipped.push({
@@ -156,9 +151,7 @@ Respond with ONLY the display name, no quotes or extra text.`;
     }
 
     if (created.length === 0) {
-      throw new InternalServerErrorException(
-        'Variant generation returned no usable variants',
-      );
+      throw new InternalServerErrorException('Variant generation returned no usable variants');
     }
 
     return {
@@ -169,11 +162,7 @@ Respond with ONLY the display name, no quotes or extra text.`;
     };
   }
 
-  private ensureUniqueLabel(
-    parentId: string,
-    baseLabel: string,
-    existingIds: Set<string>,
-  ): string {
+  private ensureUniqueLabel(parentId: string, baseLabel: string, existingIds: Set<string>): string {
     let label = baseLabel;
     let suffix = 2;
     while (existingIds.has(this.promptLoader.buildVariantId(parentId, label))) {
@@ -186,7 +175,7 @@ Respond with ONLY the display name, no quotes or extra text.`;
   private buildGenerationPrompt(
     parent: LoadedPrompt,
     count: number,
-    customInstructions?: string,
+    customInstructions?: string
   ): string {
     return `You generate high-quality prompt variants for evaluation.
 

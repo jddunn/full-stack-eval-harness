@@ -833,8 +833,8 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
             </p>
             <p className="text-muted-foreground leading-relaxed">
               Detects hallucination by checking whether every claim in the output is supported by
-              the provided context. Based on the RAGAS framework (Es et al., 2023) which
-              decomposes output into <strong>atomic claims</strong> and verifies each via{' '}
+              the provided context. Based on the RAGAS framework (Es et al., 2023) which decomposes
+              output into <strong>atomic claims</strong> and verifies each via{' '}
               <strong>Natural Language Inference</strong> &mdash; classifying claims as entailed,
               contradicted, or neutral. Score = fraction of supported claims.
             </p>
@@ -848,11 +848,21 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               implementation saves us from building claim extraction + NLI from scratch.
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              <a href="https://arxiv.org/abs/2309.15217" target="_blank" rel="noopener noreferrer" className="link">
+              <a
+                href="https://arxiv.org/abs/2309.15217"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link"
+              >
                 RAGAS (Es et al., 2023)
               </a>{' '}
               &middot;{' '}
-              <a href="https://promptfoo.dev" target="_blank" rel="noopener noreferrer" className="link">
+              <a
+                href="https://promptfoo.dev"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link"
+              >
                 promptfoo
               </a>
             </p>
@@ -888,7 +898,8 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               expensive LLM-as-judge.
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              Embeddings via configured LLM provider (OpenAI, Ollama, or LLM-generated fallback for Anthropic)
+              Embeddings via configured LLM provider (OpenAI, Ollama, or LLM-generated fallback for
+              Anthropic)
             </p>
           </div>
 
@@ -917,9 +928,9 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               malformed responses. Optional <code>threshold</code> config for numeric score cutoff.
             </p>
             <p className="text-muted-foreground leading-relaxed mt-2">
-              <strong>Shipped rubrics:</strong> <em>Helpfulness</em> (accuracy, clarity,
-              relevance) and <em>Extraction Completeness</em> (4-criteria: completeness, accuracy,
-              grounding, structure).
+              <strong>Shipped rubrics:</strong> <em>Helpfulness</em> (accuracy, clarity, relevance)
+              and <em>Extraction Completeness</em> (4-criteria: completeness, accuracy, grounding,
+              structure).
             </p>
             <p className="text-muted-foreground leading-relaxed mt-2">
               <strong>Why:</strong> Some dimensions (helpfulness, tone, completeness) can&apos;t be
@@ -927,7 +938,12 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               non-deterministic. Mitigated with low temperature and structured output.
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              <a href="https://arxiv.org/abs/2306.05685" target="_blank" rel="noopener noreferrer" className="link">
+              <a
+                href="https://arxiv.org/abs/2306.05685"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link"
+              >
                 LLM-as-Judge (Zheng et al., 2023)
               </a>
             </p>
@@ -951,7 +967,12 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
             </p>
             <p className="text-muted-foreground leading-relaxed mt-2">
               <strong>Implementation:</strong> <code>JsonSchemaGrader</code> uses{' '}
-              <a href="https://ajv.js.org/" target="_blank" rel="noopener noreferrer" className="link">
+              <a
+                href="https://ajv.js.org/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link"
+              >
                 AJV
               </a>{' '}
               (fastest JS JSON Schema validator). Parses output as JSON, validates against schema
@@ -963,11 +984,21 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               calls. Create custom schemas for any extraction task.
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              <a href="https://json-schema.org/specification" target="_blank" rel="noopener noreferrer" className="link">
+              <a
+                href="https://json-schema.org/specification"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link"
+              >
                 JSON Schema spec
               </a>{' '}
               &middot;{' '}
-              <a href="https://ajv.js.org/" target="_blank" rel="noopener noreferrer" className="link">
+              <a
+                href="https://ajv.js.org/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link"
+              >
                 AJV
               </a>
             </p>
@@ -987,17 +1018,27 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
             </p>
             <ul className="list-brutal text-muted-foreground text-sm">
               <li>
-                <strong>Exact Match</strong> &mdash; String equality with configurable case/whitespace.
-                From{' '}
-                <a href="https://arxiv.org/abs/1606.05250" target="_blank" rel="noopener noreferrer" className="link">
+                <strong>Exact Match</strong> &mdash; String equality with configurable
+                case/whitespace. From{' '}
+                <a
+                  href="https://arxiv.org/abs/1606.05250"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="link"
+                >
                   SQuAD (Rajpurkar et al., 2016)
                 </a>
                 . Binary 0/1. Best for classification and short-answer.
               </li>
               <li>
-                <strong>Contains</strong> &mdash; Substring presence with <code>all</code>/<code>any</code>{' '}
-                mode. Proportional scoring (3/5 found = 0.6). Inspired by{' '}
-                <a href="https://arxiv.org/abs/2211.09110" target="_blank" rel="noopener noreferrer" className="link">
+                <strong>Contains</strong> &mdash; Substring presence with <code>all</code>/
+                <code>any</code> mode. Proportional scoring (3/5 found = 0.6). Inspired by{' '}
+                <a
+                  href="https://arxiv.org/abs/2211.09110"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="link"
+                >
                   HELM (Liang et al., 2022)
                 </a>
                 . Best for keyword/fact verification.
@@ -1020,7 +1061,9 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               <span className="bg-foreground text-background px-2 py-0.5 text-xs font-bold">
                 ENGINE
               </span>
-              <h3 className="font-bold text-lg uppercase tracking-wide">Promptfoo Assertion Engine</h3>
+              <h3 className="font-bold text-lg uppercase tracking-wide">
+                Promptfoo Assertion Engine
+              </h3>
             </div>
             <p className="text-xs text-muted-foreground mb-3">
               <code>promptfoo</code> grader type &middot; 20+ assertions via YAML &middot; MIT
@@ -1028,7 +1071,12 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
             </p>
             <p className="text-muted-foreground leading-relaxed">
               Pass-through to{' '}
-              <a href="https://promptfoo.dev" target="_blank" rel="noopener noreferrer" className="link">
+              <a
+                href="https://promptfoo.dev"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link"
+              >
                 promptfoo
               </a>
               &apos;s assertion engine. Change <code>config.assertion</code> in a YAML file to
@@ -1077,8 +1125,8 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
               </table>
             </div>
             <p className="text-muted-foreground leading-relaxed mt-3 text-sm">
-              <strong>Why:</strong> One integration gives us the full evaluation landscape. Adding
-              a new metric is a YAML file, not a code change.
+              <strong>Why:</strong> One integration gives us the full evaluation landscape. Adding a
+              new metric is a YAML file, not a code change.
             </p>
           </div>
 
@@ -1100,15 +1148,14 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
                 deterministic, no LLM variability.
               </li>
               <li>
-                <strong>3. LLM-powered last.</strong> Faithfulness + LLM-as-Judge. Most powerful
-                but costs an LLM call per eval.
+                <strong>3. LLM-powered last.</strong> Faithfulness + LLM-as-Judge. Most powerful but
+                costs an LLM call per eval.
               </li>
             </ol>
             <p className="text-muted-foreground leading-relaxed mt-3 text-sm">
-              Each prompt declares its own grader weights via <code>recommended_graders</code>{' '}
-              with a <code>grader_rationale</code>. A Q&amp;A prompt weights faithfulness at 60%;
-              an extractor weights schema + completeness at 40% each; a summarizer balances all
-              three.
+              Each prompt declares its own grader weights via <code>recommended_graders</code> with
+              a <code>grader_rationale</code>. A Q&amp;A prompt weights faithfulness at 60%; an
+              extractor weights schema + completeness at 40% each; a summarizer balances all three.
             </p>
           </div>
         </div>
@@ -1288,15 +1335,13 @@ grader_rationale: Faithfulness is highest — responses must stay grounded in co
 
         <div className="mt-8 space-y-6">
           <div className="card p-6">
-            <h3 className="font-bold text-lg uppercase tracking-wide mb-4">
-              Current Bottleneck
-            </h3>
+            <h3 className="font-bold text-lg uppercase tracking-wide mb-4">Current Bottleneck</h3>
             <p className="text-muted-foreground leading-relaxed">
               The experiment loop in <code>experiments.service.ts</code> runs three nested{' '}
-              <code>for</code> loops: test cases &times; candidates &times; graders. Each
-              iteration makes an LLM API call and <code>await</code>s the response before moving
-              to the next. For an experiment with 6 test cases, 4 candidates, and 3 graders, that
-              &apos;s 6 &times; 4 &times; (1 generation + 3 grading) = 96 sequential API calls.
+              <code>for</code> loops: test cases &times; candidates &times; graders. Each iteration
+              makes an LLM API call and <code>await</code>s the response before moving to the next.
+              For an experiment with 6 test cases, 4 candidates, and 3 graders, that &apos;s 6
+              &times; 4 &times; (1 generation + 3 grading) = 96 sequential API calls.
             </p>
             <pre className="mt-3 text-xs bg-muted p-3 rounded overflow-x-auto">
               {`// Current: fully sequential
@@ -1313,11 +1358,11 @@ for (testCase of testCases)
               Approach 1: Concurrent Promises (Quick Win)
             </h3>
             <p className="text-muted-foreground leading-relaxed">
-              Wrap independent calls in <code>Promise.all()</code> with a concurrency limiter
-              (e.g., <code>p-limit</code>). Since OpenAI and Anthropic both support high request
-              rates, you can fire multiple API calls simultaneously. Graders for the same output
-              are fully independent and can run in parallel. Test cases across candidates can also
-              run concurrently.
+              Wrap independent calls in <code>Promise.all()</code> with a concurrency limiter (e.g.,{' '}
+              <code>p-limit</code>). Since OpenAI and Anthropic both support high request rates, you
+              can fire multiple API calls simultaneously. Graders for the same output are fully
+              independent and can run in parallel. Test cases across candidates can also run
+              concurrently.
             </p>
             <pre className="mt-3 text-xs bg-muted p-3 rounded overflow-x-auto">
               {`// Planned: parallel grading with concurrency limit
@@ -1331,13 +1376,14 @@ const results = await Promise.all(
             </pre>
             <ul className="list-brutal mt-4 text-muted-foreground text-sm">
               <li>
-                <strong>Pros:</strong> Simple to implement, works with any LLM provider, fine-grained
-                control over concurrency, real-time SSE progress still works per-result.
+                <strong>Pros:</strong> Simple to implement, works with any LLM provider,
+                fine-grained control over concurrency, real-time SSE progress still works
+                per-result.
               </li>
               <li>
-                <strong>Cons:</strong> Still makes N individual API calls (each with HTTP overhead and
-                latency). Rate limits become the bottleneck at high concurrency. Need to tune the
-                concurrency limit per provider.
+                <strong>Cons:</strong> Still makes N individual API calls (each with HTTP overhead
+                and latency). Rate limits become the bottleneck at high concurrency. Need to tune
+                the concurrency limit per provider.
               </li>
               <li>
                 <strong>Expected speedup:</strong> 5&ndash;10x for typical experiments. A 96-call
@@ -1351,19 +1397,19 @@ const results = await Promise.all(
               Approach 2: Batch API Endpoints
             </h3>
             <p className="text-muted-foreground leading-relaxed">
-              OpenAI and Anthropic both offer <strong>batch/bulk endpoints</strong> that accept
-              many requests in a single HTTP call and return all results together. This
-              eliminates per-request HTTP overhead and often comes with lower pricing.
+              OpenAI and Anthropic both offer <strong>batch/bulk endpoints</strong> that accept many
+              requests in a single HTTP call and return all results together. This eliminates
+              per-request HTTP overhead and often comes with lower pricing.
             </p>
             <ul className="list-brutal mt-4 text-muted-foreground text-sm">
               <li>
-                <strong>OpenAI Batch API:</strong> Upload a JSONL file of requests, get results
-                back asynchronously (within 24h window). 50% cost discount. Best for large offline
+                <strong>OpenAI Batch API:</strong> Upload a JSONL file of requests, get results back
+                asynchronously (within 24h window). 50% cost discount. Best for large offline
                 evaluations, not real-time.
               </li>
               <li>
-                <strong>Anthropic Message Batches:</strong> Submit up to 10,000 requests per
-                batch, results returned asynchronously. Best for bulk evaluation runs.
+                <strong>Anthropic Message Batches:</strong> Submit up to 10,000 requests per batch,
+                results returned asynchronously. Best for bulk evaluation runs.
               </li>
               <li>
                 <strong>Pros:</strong> Lower cost per call, no rate limit concerns, providers
@@ -1371,9 +1417,9 @@ const results = await Promise.all(
               </li>
               <li>
                 <strong>Cons:</strong> Asynchronous &mdash; results aren&apos;t instant, so
-                real-time SSE progress bars don&apos;t work well. Adds complexity (polling for
-                batch completion, handling partial failures). Not supported by Ollama or other
-                local providers.
+                real-time SSE progress bars don&apos;t work well. Adds complexity (polling for batch
+                completion, handling partial failures). Not supported by Ollama or other local
+                providers.
               </li>
               <li>
                 <strong>Best for:</strong> Large-scale evaluation runs (100+ test cases) where you
@@ -1416,9 +1462,7 @@ const results = await Promise.all(
           </div>
 
           <div className="card p-6 border-l-4 border-l-foreground">
-            <h3 className="font-bold text-lg uppercase tracking-wide mb-4">
-              Recommended Strategy
-            </h3>
+            <h3 className="font-bold text-lg uppercase tracking-wide mb-4">Recommended Strategy</h3>
             <p className="text-muted-foreground leading-relaxed">
               <strong>Start with concurrent promises</strong> (Approach 1). It&apos;s the simplest
               change, works with all providers, preserves real-time streaming, and delivers the
