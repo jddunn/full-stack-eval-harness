@@ -2,11 +2,33 @@
 
 A lightweight evaluation harness for testing LLM prompts against datasets with configurable graders. Define prompts as markdown files, load datasets from CSV, grade with YAML-configured graders, run experiments, and compare results.
 
-| Service      | URL                                |
-| ------------ | ---------------------------------- |
-| **Frontend** | `http://localhost:3020`             |
-| **Backend**  | `http://localhost:3021`             |
-| **API Docs** | `http://localhost:3021/api/docs`    |
+| Service      | URL                              |
+| ------------ | -------------------------------- |
+| **Frontend** | `http://localhost:3020`          |
+| **Backend**  | `http://localhost:3021`          |
+| **API Docs** | `http://localhost:3021/api/docs` |
+
+### Screenshots
+
+<p align="center">
+  <img src="screenshots/candidates.png" alt="Candidates — browse prompt families, variants, and recommended graders" width="700" />
+</p>
+<p align="center"><em>Candidates — browse prompt families, variants, and recommended graders</em></p>
+
+<p align="center">
+  <img src="screenshots/dataset-detail.png" alt="Dataset detail — inspect test cases with input, expected output, context, and metadata columns" width="700" />
+</p>
+<p align="center"><em>Dataset detail — inspect test cases with input, expected output, context, and metadata</em></p>
+
+<p align="center">
+  <img src="screenshots/experiments.png" alt="Run experiment — select dataset, graders, model, and candidates to evaluate" width="700" />
+</p>
+<p align="center"><em>Run experiment — select dataset, graders, model, and candidates to evaluate</em></p>
+
+<p align="center">
+  <img src="screenshots/experiment-results.png" alt="Experiment results — per-candidate scores with pass/fail breakdown and A/B comparison" width="700" />
+</p>
+<p align="center"><em>Experiment results — per-candidate scores with pass/fail breakdown across graders</em></p>
 
 ---
 
@@ -109,12 +131,12 @@ Template variables: `{{input}}`, `{{context}}`, `{{expected}}`, `{{metadata.fiel
 
 YAML files in `backend/graders/`. Each grader scores LLM output as pass/fail with a 0–1 score. Multiple graders combine at the experiment level via weighted scoring.
 
-| Grader | Type | Description | Config |
-|--------|------|-------------|--------|
-| **Faithfulness** | Promptfoo | Checks that response claims are grounded in provided context. Threshold adjustable (0.7 moderate, 0.85 balanced, 0.9+ strict). | threshold: 0.8, assertion: `context-faithfulness` |
-| **Helpfulness Judge** | LLM Judge | LLM evaluates if response is helpful and accurate. | rubric |
-| **Extraction Completeness** | LLM Judge | LLM evaluates extraction quality, completeness, and grounding. | rubric |
-| **Semantic Similarity** | Semantic Similarity | Measures how close the output meaning is to the expected answer. Threshold adjustable (0.7 moderate, 0.85 strict, 0.9+ exact). | threshold: 0.8 |
+| Grader                      | Type                | Description                                                                                                                    | Config                                            |
+| --------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- |
+| **Faithfulness**            | Promptfoo           | Checks that response claims are grounded in provided context. Threshold adjustable (0.7 moderate, 0.85 balanced, 0.9+ strict). | threshold: 0.8, assertion: `context-faithfulness` |
+| **Helpfulness Judge**       | LLM Judge           | LLM evaluates if response is helpful and accurate.                                                                             | rubric                                            |
+| **Extraction Completeness** | LLM Judge           | LLM evaluates extraction quality, completeness, and grounding.                                                                 | rubric                                            |
+| **Semantic Similarity**     | Semantic Similarity | Measures how close the output meaning is to the expected answer. Threshold adjustable (0.7 moderate, 0.85 strict, 0.9+ exact). | threshold: 0.8                                    |
 
 **Faithfulness** — Decomposes output into atomic claims, verifies each against the provided context via NLI. Score = fraction of supported claims. Delegates to [promptfoo](https://promptfoo.dev)'s RAGAS implementation ([Es et al., 2023](https://arxiv.org/abs/2309.15217)) — multiple LLM calls per evaluation.
 
